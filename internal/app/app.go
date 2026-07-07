@@ -9,9 +9,11 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/martinbhatta/ctrl/internal/probes"
+	batteryprobe "github.com/martinbhatta/ctrl/internal/probes/battery"
 	usageprobe "github.com/martinbhatta/ctrl/internal/probes/usage"
 	"github.com/martinbhatta/ctrl/internal/store"
 	"github.com/martinbhatta/ctrl/internal/theme"
+	batterywidget "github.com/martinbhatta/ctrl/internal/widgets/battery"
 	envwidget "github.com/martinbhatta/ctrl/internal/widgets/env"
 	todowidget "github.com/martinbhatta/ctrl/internal/widgets/todo"
 	usagewidget "github.com/martinbhatta/ctrl/internal/widgets/usage"
@@ -30,6 +32,7 @@ type Dashboard struct {
 	todos     *todowidget.Panel
 	env       *envwidget.Panel
 	usage     *usagewidget.Panel
+	battery   *batterywidget.Panel
 	footer    *tview.TextView
 	todoStore *store.TodoStore
 	probes    []probes.Probe
@@ -46,6 +49,7 @@ func New(options Options) *Dashboard {
 		todos:     todowidget.NewPanel(),
 		env:       envwidget.NewPanel(),
 		usage:     usagewidget.NewPanel(),
+		battery:   batterywidget.NewPanel(),
 		footer:    tview.NewTextView().SetDynamicColors(true),
 		todoStore: store.NewTodoStore(options.TodoPath),
 		probes:    probes.Default(),
@@ -77,6 +81,7 @@ func (d *Dashboard) configure() {
 	sidebar := tview.NewFlex().SetDirection(tview.FlexRow)
 	sidebar.AddItem(d.env.Primitive(), 0, 2, false)
 	sidebar.AddItem(d.usage.Primitive(), 0, 1, false)
+	sidebar.AddItem(d.battery.Primitive(), 4, 0, false)
 
 	body.AddItem(d.todos.Primitive(), 0, 1, true)
 	body.AddItem(sidebar, 0, 1, false)
@@ -123,12 +128,14 @@ func (d *Dashboard) refreshSync(ctx context.Context) {
 	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
 	d.env.SetStatuses(statuses)
 	d.usage.SetRows(d.checkUsage(ctx))
+	d.battery.SetStatus(d.checkBattery(ctx))
 }
 
 func (d *Dashboard) refreshAsync(ctx context.Context) {
 	todos, todoErr := d.todoStore.Load()
 	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
 	usageRows := d.checkUsage(ctx)
+	batteryStatus := d.checkBattery(ctx)
 
 	d.app.QueueUpdateDraw(func() {
 		if todoErr != nil {
@@ -138,6 +145,7 @@ func (d *Dashboard) refreshAsync(ctx context.Context) {
 		}
 		d.env.SetStatuses(statuses)
 		d.usage.SetRows(usageRows)
+		d.battery.SetStatus(batteryStatus)
 		d.setFooter("q quit | r refresh | data " + d.options.TodoPath)
 	})
 }
@@ -147,6 +155,13 @@ func (d *Dashboard) checkUsage(ctx context.Context) []usageprobe.ResourceUsage {
 	defer cancel()
 
 	return usageprobe.Check(usageCtx)
+}
+
+func (d *Dashboard) checkBattery(ctx context.Context) batteryprobe.Status {
+	batteryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	return batteryprobe.Check(batteryCtx)
 }
 
 func (d *Dashboard) refreshLoop(ctx context.Context) {
