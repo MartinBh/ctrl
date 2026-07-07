@@ -7,6 +7,7 @@ import (
 
 const (
 	appDirName   = "ctrl"
+	configFile   = "config.json"
 	todosFile    = "todos.json"
 	configEnvVar = "CTRL_CONFIG_HOME"
 )
@@ -36,4 +37,13 @@ func DefaultTodosPath() (string, error) {
 	}
 
 	return filepath.Join(dir, todosFile), nil
+}
+
+func DefaultConfigPath() (string, error) {
+	dir, err := DefaultConfigDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, configFile), nil
 }
