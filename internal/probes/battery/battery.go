@@ -155,7 +155,7 @@ func noBatteryStatus() Status {
 	return Status{
 		Present: false,
 		State:   "no battery detected",
-		Detail:  "desktop or external power only",
+		Detail:  "no battery reported",
 		Level:   probes.LevelMuted,
 	}
 }
