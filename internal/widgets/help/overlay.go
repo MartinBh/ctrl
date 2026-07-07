@@ -20,7 +20,6 @@ ctrl is your personal terminal command center.
 
 [green]Todo panel[::-]
   up/down  move through visible todos
-  enter    select the highlighted row
 
 [green]Dashboard controls[::-]
   r        refresh environment and system status
