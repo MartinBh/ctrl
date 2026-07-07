@@ -12,6 +12,7 @@ const (
 	LevelOK      Level = "ok"
 	LevelWarning Level = "warning"
 	LevelError   Level = "error"
+	LevelMuted   Level = "muted"
 )
 
 type Status struct {
