@@ -9,10 +9,12 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/martinbhatta/ctrl/internal/probes"
+	usageprobe "github.com/martinbhatta/ctrl/internal/probes/usage"
 	"github.com/martinbhatta/ctrl/internal/store"
 	"github.com/martinbhatta/ctrl/internal/theme"
 	envwidget "github.com/martinbhatta/ctrl/internal/widgets/env"
 	todowidget "github.com/martinbhatta/ctrl/internal/widgets/todo"
+	usagewidget "github.com/martinbhatta/ctrl/internal/widgets/usage"
 )
 
 type Options struct {
@@ -27,6 +29,7 @@ type Dashboard struct {
 	app       *tview.Application
 	todos     *todowidget.Panel
 	env       *envwidget.Panel
+	usage     *usagewidget.Panel
 	footer    *tview.TextView
 	todoStore *store.TodoStore
 	probes    []probes.Probe
@@ -42,6 +45,7 @@ func New(options Options) *Dashboard {
 		app:       tview.NewApplication(),
 		todos:     todowidget.NewPanel(),
 		env:       envwidget.NewPanel(),
+		usage:     usagewidget.NewPanel(),
 		footer:    tview.NewTextView().SetDynamicColors(true),
 		todoStore: store.NewTodoStore(options.TodoPath),
 		probes:    probes.Default(),
@@ -70,8 +74,12 @@ func (d *Dashboard) configure() {
 		SetText(fmt.Sprintf("[::b]%s[::-]  [gray]personal terminal command center  version %s", theme.AppTitle, d.options.Version))
 
 	body := tview.NewFlex().SetDirection(tview.FlexColumn)
+	sidebar := tview.NewFlex().SetDirection(tview.FlexRow)
+	sidebar.AddItem(d.env.Primitive(), 0, 2, false)
+	sidebar.AddItem(d.usage.Primitive(), 0, 1, false)
+
 	body.AddItem(d.todos.Primitive(), 0, 1, true)
-	body.AddItem(d.env.Primitive(), 0, 1, false)
+	body.AddItem(sidebar, 0, 1, false)
 
 	d.footer.SetTextColor(theme.ColorMuted)
 	d.footer.SetTextAlign(tview.AlignCenter)
@@ -94,7 +102,7 @@ func (d *Dashboard) configure() {
 				d.app.Stop()
 				return nil
 			case 'r':
-				d.setFooter("refreshing environment...")
+				d.setFooter("refreshing dashboard...")
 				go d.refreshAsync(context.Background())
 				return nil
 			}
@@ -114,11 +122,13 @@ func (d *Dashboard) refreshSync(ctx context.Context) {
 
 	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
 	d.env.SetStatuses(statuses)
+	d.usage.SetRows(d.checkUsage(ctx))
 }
 
 func (d *Dashboard) refreshAsync(ctx context.Context) {
 	todos, todoErr := d.todoStore.Load()
 	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
+	usageRows := d.checkUsage(ctx)
 
 	d.app.QueueUpdateDraw(func() {
 		if todoErr != nil {
@@ -127,8 +137,16 @@ func (d *Dashboard) refreshAsync(ctx context.Context) {
 			d.todos.SetTodos(todos)
 		}
 		d.env.SetStatuses(statuses)
+		d.usage.SetRows(usageRows)
 		d.setFooter("q quit | r refresh | data " + d.options.TodoPath)
 	})
+}
+
+func (d *Dashboard) checkUsage(ctx context.Context) []usageprobe.ResourceUsage {
+	usageCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	return usageprobe.Check(usageCtx)
 }
 
 func (d *Dashboard) refreshLoop(ctx context.Context) {

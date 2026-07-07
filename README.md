@@ -33,6 +33,7 @@ make check
 
 - Todo panel backed by JSON loading
 - Environment panel with probes for Docker daemon, Node, Python, Go, and Foundry Forge
+- Usage panel with RAM and primary disk availability
 - Manual refresh with `r`
 - Automatic environment refresh every five minutes
 - Quit with `q` or `Ctrl+C`
