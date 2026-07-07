@@ -1,3 +1,5 @@
 /ctrl
 /dist/
+/cmd/ctrl/ctrl
+/.cache/
 *.log

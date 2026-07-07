@@ -21,10 +21,12 @@ You can override that config directory with:
 CTRL_CONFIG_HOME=/some/path ctrl
 ```
 
-## Run
+## Development
 
 ```sh
-go run ./cmd/ctrl
+make run
+make build
+make check
 ```
 
 ## Current dashboard
