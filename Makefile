@@ -5,8 +5,10 @@ BIN := $(DIST_DIR)/$(APP_NAME)
 CACHE_DIR := .cache
 GO ?= go
 GOCACHE ?= $(CURDIR)/$(CACHE_DIR)/go-build
+GOMODCACHE ?= $(CURDIR)/$(CACHE_DIR)/go-mod
 
 export GOCACHE
+export GOMODCACHE
 
 .DEFAULT_GOAL := help
 
@@ -49,4 +51,5 @@ tidy: ## Tidy Go module dependencies.
 check: fmt tidy test vet ## Run the standard verification chain.
 
 clean: ## Remove local build artifacts.
+	-chmod -R u+w $(CACHE_DIR) 2>/dev/null
 	rm -rf $(DIST_DIR) $(CACHE_DIR) ./$(APP_NAME) ./cmd/ctrl/$(APP_NAME)
