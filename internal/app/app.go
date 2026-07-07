@@ -15,12 +15,19 @@ import (
 	"github.com/martinbhatta/ctrl/internal/theme"
 	batterywidget "github.com/martinbhatta/ctrl/internal/widgets/battery"
 	envwidget "github.com/martinbhatta/ctrl/internal/widgets/env"
+	helpwidget "github.com/martinbhatta/ctrl/internal/widgets/help"
 	todowidget "github.com/martinbhatta/ctrl/internal/widgets/todo"
 	usagewidget "github.com/martinbhatta/ctrl/internal/widgets/usage"
 )
 
+const (
+	dashboardPageName = "dashboard"
+	helpPageName      = "help"
+)
+
 type Options struct {
 	Version      string
+	ConfigPath   string
 	TodoPath     string
 	RefreshEvery time.Duration
 }
@@ -28,14 +35,18 @@ type Options struct {
 type Dashboard struct {
 	options Options
 
-	app       *tview.Application
-	todos     *todowidget.Panel
-	env       *envwidget.Panel
-	usage     *usagewidget.Panel
-	battery   *batterywidget.Panel
-	footer    *tview.TextView
-	todoStore *store.TodoStore
-	probes    []probes.Probe
+	app         *tview.Application
+	pages       *tview.Pages
+	todos       *todowidget.Panel
+	env         *envwidget.Panel
+	usage       *usagewidget.Panel
+	battery     *batterywidget.Panel
+	footer      *tview.TextView
+	config      store.Config
+	configStore *store.ConfigStore
+	todoStore   *store.TodoStore
+	probes      []probes.Probe
+	helpVisible bool
 }
 
 func New(options Options) *Dashboard {
@@ -44,21 +55,33 @@ func New(options Options) *Dashboard {
 	}
 
 	return &Dashboard{
-		options:   options,
-		app:       tview.NewApplication(),
-		todos:     todowidget.NewPanel(),
-		env:       envwidget.NewPanel(),
-		usage:     usagewidget.NewPanel(),
-		battery:   batterywidget.NewPanel(),
-		footer:    tview.NewTextView().SetDynamicColors(true),
-		todoStore: store.NewTodoStore(options.TodoPath),
-		probes:    probes.Default(),
+		options:     options,
+		app:         tview.NewApplication(),
+		todos:       todowidget.NewPanel(),
+		env:         envwidget.NewPanel(),
+		usage:       usagewidget.NewPanel(),
+		battery:     batterywidget.NewPanel(),
+		footer:      tview.NewTextView().SetDynamicColors(true),
+		configStore: store.NewConfigStore(options.ConfigPath),
+		todoStore:   store.NewTodoStore(options.TodoPath),
+		probes:      probes.Default(),
 	}
 }
 
 func (d *Dashboard) Run(ctx context.Context) error {
+	config, configErr := d.configStore.Load()
+	if configErr == nil {
+		d.config = config
+	}
+
 	d.configure()
 	d.refreshSync(ctx)
+
+	if configErr != nil {
+		d.setFooter("could not load config: " + configErr.Error())
+	} else if !d.config.TutorialSeen {
+		d.showHelp()
+	}
 
 	go d.refreshLoop(ctx)
 	go func() {
@@ -88,33 +111,88 @@ func (d *Dashboard) configure() {
 
 	d.footer.SetTextColor(theme.ColorMuted)
 	d.footer.SetTextAlign(tview.AlignCenter)
-	d.setFooter("q quit | r refresh | data " + d.options.TodoPath)
+	d.setFooter(d.defaultFooter())
 
 	root.AddItem(header, 1, 0, false)
 	root.AddItem(body, 0, 1, true)
 	root.AddItem(d.footer, 1, 0, false)
 
-	d.app.SetRoot(root, true)
+	d.pages = tview.NewPages()
+	d.pages.AddPage(dashboardPageName, root, true, true)
+
+	d.app.SetRoot(d.pages, true)
 	d.app.EnableMouse(true)
-	d.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	d.app.SetInputCapture(d.handleKey)
+}
+
+func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
+	if d.helpVisible {
 		switch event.Key() {
+		case tcell.KeyEnter, tcell.KeyEscape:
+			d.dismissHelp()
+			return nil
 		case tcell.KeyCtrlC:
 			d.app.Stop()
 			return nil
 		case tcell.KeyRune:
-			switch event.Rune() {
-			case 'q':
-				d.app.Stop()
-				return nil
-			case 'r':
-				d.setFooter("refreshing dashboard...")
-				go d.refreshAsync(context.Background())
-				return nil
+			if event.Rune() == 'q' {
+				d.dismissHelp()
 			}
+			return nil
 		}
 
-		return event
-	})
+		return nil
+	}
+
+	switch event.Key() {
+	case tcell.KeyCtrlC:
+		d.app.Stop()
+		return nil
+	case tcell.KeyRune:
+		switch event.Rune() {
+		case 'q':
+			d.app.Stop()
+			return nil
+		case 'r':
+			d.setFooter("refreshing dashboard...")
+			go d.refreshAsync(context.Background())
+			return nil
+		case '?':
+			d.showHelp()
+			return nil
+		}
+	}
+
+	return event
+}
+
+func (d *Dashboard) showHelp() {
+	if d.pages == nil {
+		return
+	}
+
+	d.helpVisible = true
+	d.pages.AddPage(helpPageName, helpwidget.NewOverlay(), true, true)
+	d.pages.SendToFront(helpPageName)
+}
+
+func (d *Dashboard) dismissHelp() {
+	if !d.helpVisible {
+		return
+	}
+
+	d.helpVisible = false
+	d.pages.RemovePage(helpPageName)
+
+	if !d.config.TutorialSeen {
+		d.config.TutorialSeen = true
+		if err := d.configStore.Save(d.config); err != nil {
+			d.setFooter("could not save tutorial state: " + err.Error())
+			return
+		}
+	}
+
+	d.setFooter(d.defaultFooter())
 }
 
 func (d *Dashboard) refreshSync(ctx context.Context) {
@@ -146,7 +224,7 @@ func (d *Dashboard) refreshAsync(ctx context.Context) {
 		d.env.SetStatuses(statuses)
 		d.usage.SetRows(usageRows)
 		d.battery.SetStatus(batteryStatus)
-		d.setFooter("q quit | r refresh | data " + d.options.TodoPath)
+		d.setFooter(d.defaultFooter())
 	})
 }
 
@@ -180,4 +258,8 @@ func (d *Dashboard) refreshLoop(ctx context.Context) {
 
 func (d *Dashboard) setFooter(text string) {
 	d.footer.SetText("[gray]" + text)
+}
+
+func (d *Dashboard) defaultFooter() string {
+	return "q quit | r refresh | ? help | data " + d.options.TodoPath
 }
