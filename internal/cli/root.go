@@ -35,6 +35,11 @@ func NewRootCommand(version string) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := store.DefaultConfigPath()
+			if err != nil {
+				return err
+			}
+
 			todoPath, err := store.DefaultTodosPath()
 			if err != nil {
 				return err
@@ -42,6 +47,7 @@ func NewRootCommand(version string) *cobra.Command {
 
 			dashboard := app.New(app.Options{
 				Version:      version,
+				ConfigPath:   configPath,
 				TodoPath:     todoPath,
 				RefreshEvery: refreshEvery,
 			})
