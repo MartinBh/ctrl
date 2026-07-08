@@ -20,6 +20,10 @@ ctrl is your personal terminal command center.
 
 [green]Todo panel[::-]
   up/down  move through visible todos
+  a        add a todo
+  e        edit selected todo
+  space    complete or reopen selected todo
+  d        delete selected todo
 
 [green]Dashboard controls[::-]
   r        refresh environment and system status
@@ -27,7 +31,7 @@ ctrl is your personal terminal command center.
   q        quit
   Ctrl+C   quit
 
-[gray]Todos load from your local JSON file. Add, complete, and delete controls are coming in the interactive todo pass.[::-]
+[gray]Todos are saved to your local JSON file as you work.[::-]
 
 [::b]Press Enter, Escape, or q to start.[::-]`
 
