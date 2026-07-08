@@ -78,7 +78,6 @@ func (d *Dashboard) Run(ctx context.Context) error {
 	}
 
 	d.configure()
-	d.refreshSync(ctx)
 
 	if configErr != nil {
 		d.setFooter("could not load config: " + configErr.Error())
@@ -86,6 +85,7 @@ func (d *Dashboard) Run(ctx context.Context) error {
 		d.showHelp()
 	}
 
+	go d.refreshAsync(ctx, false)
 	go d.refreshLoop(ctx)
 	go func() {
 		<-ctx.Done()
@@ -126,6 +126,7 @@ func (d *Dashboard) configure() {
 	d.app.SetRoot(d.pages, true)
 	d.app.EnableMouse(true)
 	d.app.SetInputCapture(d.handleKey)
+	d.showLoadingState()
 }
 
 func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
@@ -171,7 +172,7 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'r':
 			d.setFooter("refreshing dashboard...")
-			go d.refreshAsync(context.Background())
+			go d.refreshAsync(context.Background(), true)
 			return nil
 		case 'a':
 			d.showAddTodo()
@@ -376,21 +377,7 @@ func (d *Dashboard) dismissHelp() {
 	d.setFooter(d.defaultFooter())
 }
 
-func (d *Dashboard) refreshSync(ctx context.Context) {
-	todos, err := d.todoStore.Load()
-	if err != nil {
-		d.todos.SetError(err)
-	} else {
-		d.todos.SetTodos(todos)
-	}
-
-	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
-	d.env.SetStatuses(statuses)
-	d.usage.SetRows(d.checkUsage(ctx))
-	d.battery.SetStatus(d.checkBattery(ctx))
-}
-
-func (d *Dashboard) refreshAsync(ctx context.Context) {
+func (d *Dashboard) refreshAsync(ctx context.Context, resetFooter bool) {
 	todos, todoErr := d.todoStore.Load()
 	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
 	usageRows := d.checkUsage(ctx)
@@ -405,7 +392,9 @@ func (d *Dashboard) refreshAsync(ctx context.Context) {
 		d.env.SetStatuses(statuses)
 		d.usage.SetRows(usageRows)
 		d.battery.SetStatus(batteryStatus)
-		d.setFooter(d.defaultFooter())
+		if resetFooter {
+			d.setFooter(d.defaultFooter())
+		}
 	})
 }
 
@@ -432,9 +421,35 @@ func (d *Dashboard) refreshLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.refreshAsync(ctx)
+			d.refreshAsync(ctx, true)
 		}
 	}
+}
+
+func (d *Dashboard) showLoadingState() {
+	d.todos.SetLoading()
+	d.env.SetStatuses(loadingProbeStatuses(d.probes))
+	d.usage.SetLoading()
+	d.battery.SetStatus(batteryprobe.Status{
+		Present: false,
+		State:   "checking",
+		Detail:  "battery status pending",
+		Level:   probes.LevelMuted,
+	})
+}
+
+func loadingProbeStatuses(checks []probes.Probe) []probes.Status {
+	statuses := make([]probes.Status, len(checks))
+	for index, check := range checks {
+		statuses[index] = probes.Status{
+			Name:   check.Name(),
+			Value:  "checking",
+			Detail: "probe pending",
+			Level:  probes.LevelMuted,
+		}
+	}
+
+	return statuses
 }
 
 func (d *Dashboard) setFooter(text string) {

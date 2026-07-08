@@ -2,6 +2,19 @@ package usage
 
 import "testing"
 
+func TestPanelShowsLoadingState(t *testing.T) {
+	panel := NewPanel()
+
+	panel.SetLoading()
+
+	if got := panel.table.GetCell(1, 0).Text; got != "Usage" {
+		t.Fatalf("loading row name = %q, want Usage", got)
+	}
+	if got := panel.table.GetCell(1, 1).Text; got != "checking" {
+		t.Fatalf("loading row status = %q, want checking", got)
+	}
+}
+
 func TestProgressBar(t *testing.T) {
 	tests := []struct {
 		name string

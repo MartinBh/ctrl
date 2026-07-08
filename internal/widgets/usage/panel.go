@@ -31,6 +31,15 @@ func (p *Panel) Primitive() tview.Primitive {
 	return p.table
 }
 
+func (p *Panel) SetLoading() {
+	p.table.Clear()
+
+	p.table.SetCell(0, 0, headerCell("Resource"))
+	p.table.SetCell(0, 1, headerCell("Status"))
+	p.table.SetCell(1, 0, tview.NewTableCell("Usage").SetTextColor(theme.ColorAccent))
+	p.table.SetCell(1, 1, tview.NewTableCell("checking").SetTextColor(theme.ColorMuted))
+}
+
 func (p *Panel) SetRows(rows []usageprobe.ResourceUsage) {
 	p.table.Clear()
 
