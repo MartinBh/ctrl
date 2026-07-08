@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -114,16 +113,7 @@ func (s *TodoStore) Delete(id string) ([]Todo, error) {
 }
 
 func (s *TodoStore) Save(todos []Todo) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(todos, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(s.path, append(data, '\n'), 0o644)
+	return writeIndentedJSON(s.path, todos)
 }
 
 func (s *TodoStore) update(id string, apply func(*Todo)) ([]Todo, error) {
