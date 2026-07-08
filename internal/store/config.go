@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 )
 
 type Config struct {
@@ -42,14 +41,5 @@ func (s *ConfigStore) Load() (Config, error) {
 }
 
 func (s *ConfigStore) Save(config Config) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(s.path, append(data, '\n'), 0o644)
+	return writeIndentedJSON(s.path, config)
 }
