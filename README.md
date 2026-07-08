@@ -38,12 +38,12 @@ make check
 ## Current dashboard
 
 - Todo panel backed by JSON loading
+- Add, edit, complete, and delete todos directly in the terminal UI
 - Environment panel with probes for Docker daemon, Node, Python, Go, and Foundry Forge
 - Usage panel with RAM and primary disk availability
 - Battery panel with charge state or no-battery status
 - First-launch tutorial and reusable help overlay with `?`
 - Manual refresh with `r`
 - Automatic dashboard refresh every five minutes
+- Todo shortcuts: `a` add, `e` edit, `space` complete/reopen, `d` delete
 - Quit with `q` or `Ctrl+C`
-
-Todo editing is intentionally left for the next pass.

@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	dashboardPageName = "dashboard"
-	helpPageName      = "help"
+	dashboardPageName  = "dashboard"
+	helpPageName       = "help"
+	todoDeletePageName = "todo-delete"
+	todoInputPageName  = "todo-input"
 )
 
 type Options struct {
@@ -35,18 +37,19 @@ type Options struct {
 type Dashboard struct {
 	options Options
 
-	app         *tview.Application
-	pages       *tview.Pages
-	todos       *todowidget.Panel
-	env         *envwidget.Panel
-	usage       *usagewidget.Panel
-	battery     *batterywidget.Panel
-	footer      *tview.TextView
-	config      store.Config
-	configStore *store.ConfigStore
-	todoStore   *store.TodoStore
-	probes      []probes.Probe
-	helpVisible bool
+	app                *tview.Application
+	pages              *tview.Pages
+	todos              *todowidget.Panel
+	env                *envwidget.Panel
+	usage              *usagewidget.Panel
+	battery            *batterywidget.Panel
+	footer             *tview.TextView
+	config             store.Config
+	configStore        *store.ConfigStore
+	todoStore          *store.TodoStore
+	probes             []probes.Probe
+	helpVisible        bool
+	todoOverlayVisible bool
 }
 
 func New(options Options) *Dashboard {
@@ -126,6 +129,19 @@ func (d *Dashboard) configure() {
 }
 
 func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
+	if d.todoOverlayVisible {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			d.closeTodoOverlay()
+			return nil
+		case tcell.KeyCtrlC:
+			d.app.Stop()
+			return nil
+		}
+
+		return event
+	}
+
 	if d.helpVisible {
 		switch event.Key() {
 		case tcell.KeyEnter, tcell.KeyEscape:
@@ -157,6 +173,18 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 			d.setFooter("refreshing dashboard...")
 			go d.refreshAsync(context.Background())
 			return nil
+		case 'a':
+			d.showAddTodo()
+			return nil
+		case 'e':
+			d.showEditTodo()
+			return nil
+		case 'd':
+			d.showDeleteTodo()
+			return nil
+		case ' ':
+			d.toggleSelectedTodo()
+			return nil
 		case '?':
 			d.showHelp()
 			return nil
@@ -164,6 +192,159 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	}
 
 	return event
+}
+
+func (d *Dashboard) showAddTodo() {
+	d.showTodoInput("ADD TODO", "Title", "", "todo added", func(title string) error {
+		todos, todo, err := d.todoStore.Add(title)
+		if err != nil {
+			return err
+		}
+
+		d.todos.SetTodos(todos)
+		d.todos.SelectTodo(todo.ID)
+		return nil
+	})
+}
+
+func (d *Dashboard) showEditTodo() {
+	todo, ok := d.todos.SelectedTodo()
+	if !ok {
+		d.setFooter("no todo selected")
+		return
+	}
+
+	d.showTodoInput("EDIT TODO", "Title", todo.Title, "todo updated", func(title string) error {
+		todos, err := d.todoStore.UpdateTitle(todo.ID, title)
+		if err != nil {
+			return err
+		}
+
+		d.todos.SetTodos(todos)
+		d.todos.SelectTodo(todo.ID)
+		return nil
+	})
+}
+
+func (d *Dashboard) toggleSelectedTodo() {
+	todo, ok := d.todos.SelectedTodo()
+	if !ok {
+		d.setFooter("no todo selected")
+		return
+	}
+
+	todos, err := d.todoStore.Toggle(todo.ID)
+	if err != nil {
+		d.setFooter("could not toggle todo: " + err.Error())
+		return
+	}
+
+	d.todos.SetTodos(todos)
+	d.todos.SelectTodo(todo.ID)
+	if todo.Done {
+		d.setFooter("todo marked incomplete")
+	} else {
+		d.setFooter("todo completed")
+	}
+}
+
+func (d *Dashboard) showDeleteTodo() {
+	todo, ok := d.todos.SelectedTodo()
+	if !ok {
+		d.setFooter("no todo selected")
+		return
+	}
+
+	modal := tview.NewModal().
+		SetText(fmt.Sprintf("Delete todo?\n\n%s", todo.Title)).
+		AddButtons([]string{"Delete", "Cancel"}).
+		SetDoneFunc(func(_ int, label string) {
+			if label != "Delete" {
+				d.closeTodoOverlay()
+				return
+			}
+
+			todos, err := d.todoStore.Delete(todo.ID)
+			if err != nil {
+				d.setFooter("could not delete todo: " + err.Error())
+				return
+			}
+
+			d.todos.SetTodos(todos)
+			d.closeTodoOverlay()
+			d.setFooter("todo deleted")
+		})
+	theme.Box(modal.Box, "DELETE TODO")
+
+	d.showTodoOverlay(todoDeletePageName, centeredPrimitive(modal, 52, 10), modal)
+}
+
+func (d *Dashboard) showTodoInput(title string, label string, initial string, success string, save func(string) error) {
+	input := tview.NewInputField().
+		SetLabel(label + ": ").
+		SetText(initial).
+		SetFieldWidth(40).
+		SetAcceptanceFunc(func(_ string, lastChar rune) bool {
+			return lastChar != '\n' && lastChar != '\r'
+		})
+
+	form := tview.NewForm().
+		AddFormItem(input).
+		AddButton("Save", func() {
+			d.saveTodoInput(input.GetText(), success, save)
+		}).
+		AddButton("Cancel", d.closeTodoOverlay).
+		SetButtonsAlign(tview.AlignRight).
+		SetLabelColor(theme.ColorPrimary).
+		SetFieldTextColor(theme.ColorAccent).
+		SetFieldBackgroundColor(tcell.ColorBlack).
+		SetButtonTextColor(theme.ColorPrimary).
+		SetButtonBackgroundColor(tcell.ColorBlack)
+	form.SetCancelFunc(d.closeTodoOverlay)
+	input.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			d.saveTodoInput(input.GetText(), success, save)
+		case tcell.KeyEscape:
+			d.closeTodoOverlay()
+		}
+	})
+	theme.Box(form.Box, title)
+
+	d.showTodoOverlay(todoInputPageName, centeredPrimitive(form, 58, 7), form)
+}
+
+func (d *Dashboard) saveTodoInput(title string, success string, save func(string) error) {
+	if err := save(title); err != nil {
+		d.setFooter("could not save todo: " + err.Error())
+		return
+	}
+
+	d.closeTodoOverlay()
+	d.setFooter(success)
+}
+
+func (d *Dashboard) showTodoOverlay(pageName string, primitive tview.Primitive, focus tview.Primitive) {
+	if d.pages == nil {
+		return
+	}
+
+	d.closeTodoOverlay()
+	d.todoOverlayVisible = true
+	d.pages.AddPage(pageName, primitive, true, true)
+	d.pages.SendToFront(pageName)
+	d.app.SetFocus(focus)
+}
+
+func (d *Dashboard) closeTodoOverlay() {
+	if d.pages == nil {
+		return
+	}
+
+	d.todoOverlayVisible = false
+	d.pages.RemovePage(todoInputPageName)
+	d.pages.RemovePage(todoDeletePageName)
+	d.app.SetFocus(d.todos.Primitive())
 }
 
 func (d *Dashboard) showHelp() {
@@ -261,5 +442,17 @@ func (d *Dashboard) setFooter(text string) {
 }
 
 func (d *Dashboard) defaultFooter() string {
-	return "q quit | r refresh | ? help | data " + d.options.TodoPath
+	return "a add | e edit | space complete | d delete | r refresh | ? help | q quit | data " + d.options.TodoPath
+}
+
+func centeredPrimitive(primitive tview.Primitive, width int, height int) tview.Primitive {
+	row := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 1, false).
+		AddItem(primitive, width, 0, true).
+		AddItem(nil, 0, 1, false)
+
+	return tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(row, height, 0, true).
+		AddItem(nil, 0, 1, false)
 }
