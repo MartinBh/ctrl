@@ -1,7 +1,10 @@
 package todo
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/gdamore/tcell/v2"
 
 	"github.com/martinbhatta/ctrl/internal/store"
 )
@@ -55,6 +58,23 @@ func TestPanelTracksSelectedTodo(t *testing.T) {
 	}
 	if todo.ID != "two" {
 		t.Fatalf("SelectedTodo() ID = %q, want %q", todo.ID, "two")
+	}
+}
+
+func TestPanelEscapesTodoTitleTags(t *testing.T) {
+	title := "[red]fix [blue]bug[-]"
+	panel := NewPanel()
+	panel.SetTodos([]store.Todo{{ID: "one", Title: title}})
+
+	main, _ := panel.list.GetItemText(0)
+	wantMain := "[ ] [red[]fix [blue[]bug[-[]"
+	if main != wantMain {
+		t.Fatalf("main text = %q, want %q", main, wantMain)
+	}
+
+	rendered := drawPanel(t, panel, 48, 5)
+	if !strings.Contains(rendered, "[red]fix [blue]bug[-]") {
+		t.Fatalf("rendered panel missing literal title in:\n%s", rendered)
 	}
 }
 
@@ -117,4 +137,35 @@ type assertErr string
 
 func (e assertErr) Error() string {
 	return string(e)
+}
+
+func drawPanel(t *testing.T, panel *Panel, width int, height int) string {
+	t.Helper()
+
+	screen := tcell.NewSimulationScreen("")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(screen.Fini)
+
+	screen.SetSize(width, height)
+	panel.list.SetRect(0, 0, width, height)
+	panel.list.Draw(screen)
+	screen.Show()
+
+	cells, screenWidth, screenHeight := screen.GetContents()
+	var rendered strings.Builder
+	for y := 0; y < screenHeight; y++ {
+		for x := 0; x < screenWidth; x++ {
+			cell := cells[y*screenWidth+x]
+			if len(cell.Runes) == 0 {
+				rendered.WriteRune(' ')
+				continue
+			}
+			rendered.WriteRune(cell.Runes[0])
+		}
+		rendered.WriteRune('\n')
+	}
+
+	return rendered.String()
 }
