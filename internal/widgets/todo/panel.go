@@ -51,7 +51,7 @@ func (p *Panel) SetTodos(todos []store.Todo) {
 			check = "[x]"
 		}
 
-		p.list.AddItem(fmt.Sprintf("%s %s", check, todo.Title), "", 0, nil)
+		p.list.AddItem(fmt.Sprintf("%s %s", check, tview.Escape(todo.Title)), "", 0, nil)
 	}
 
 	if selectedID != "" && p.SelectTodo(selectedID) {
