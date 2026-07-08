@@ -123,28 +123,7 @@ func (s *TodoStore) Save(todos []Todo) error {
 		return err
 	}
 
-	dir := filepath.Dir(s.path)
-	tempFile, err := os.CreateTemp(dir, filepath.Base(s.path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-
-	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
-
-	if _, err := tempFile.Write(append(data, '\n')); err != nil {
-		tempFile.Close()
-		return err
-	}
-	if err := tempFile.Chmod(0o644); err != nil {
-		tempFile.Close()
-		return err
-	}
-	if err := tempFile.Close(); err != nil {
-		return err
-	}
-
-	return os.Rename(tempPath, s.path)
+	return os.WriteFile(s.path, append(data, '\n'), 0o644)
 }
 
 func (s *TodoStore) update(id string, apply func(*Todo)) ([]Todo, error) {
