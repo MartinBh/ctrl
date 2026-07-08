@@ -11,29 +11,24 @@ import (
 
 const (
 	maxOverlayWidth  = 72
-	maxOverlayHeight = 20
+	minOverlayWidth  = 12
+	minOverlayHeight = 6
 )
+
+const dismissalPrompt = "[::b]Press Enter, Escape, or q to start.[::-]"
 
 const tutorialText = `[::b]Welcome to ctrl[::-]
 
-ctrl is your personal terminal command center.
+[green]Todos[::-]
+  up/down move | a add | e edit
+  space complete/reopen | d delete
 
-[green]Todo panel[::-]
-  up/down  move through visible todos
-  a        add a todo
-  e        edit selected todo
-  space    complete or reopen selected todo
-  d        delete selected todo
+[green]Dashboard[::-]
+  r refresh | ? help | q/Ctrl+C quit
 
-[green]Dashboard controls[::-]
-  r        refresh environment and system status
-  ?        show this help screen again
-  q        quit
-  Ctrl+C   quit
+[gray]Todos save locally as you work.[::-]
 
-[gray]Todos are saved to your local JSON file as you work.[::-]
-
-[::b]Press Enter, Escape, or q to start.[::-]`
+` + dismissalPrompt
 
 type Overlay struct {
 	*tview.Box
@@ -62,12 +57,25 @@ func (o *Overlay) Draw(screen tcell.Screen) {
 	}
 
 	width := fit(maxOverlayWidth, screenWidth-2)
-	height := fit(maxOverlayHeight, screenHeight-2)
-	if width < 12 {
+	if width < minOverlayWidth {
 		width = screenWidth
 	}
-	if height < 6 {
+	if width <= 0 {
+		return
+	}
+
+	innerWidth := width - 4
+	if innerWidth < 1 {
+		innerWidth = width
+	}
+
+	lines := tview.WordWrap(o.text, innerWidth)
+	height := fit(len(lines)+2, screenHeight-2)
+	if height < minOverlayHeight {
 		height = screenHeight
+	}
+	if height <= 0 {
+		return
 	}
 
 	x := (screenWidth - width) / 2
@@ -76,13 +84,9 @@ func (o *Overlay) Draw(screen tcell.Screen) {
 	o.Box.SetRect(x, y, width, height)
 	o.Box.DrawForSubclass(screen, o)
 
-	lines := tview.WordWrap(o.text, width-4)
 	innerHeight := height - 2
-	for row, line := range lines {
-		if row >= innerHeight {
-			break
-		}
-		tview.Print(screen, strings.TrimRight(line, " "), x+2, y+1+row, width-4, tview.AlignLeft, tcell.ColorWhite)
+	for row, line := range visibleLines(lines, innerHeight) {
+		tview.Print(screen, strings.TrimRight(line, " "), x+2, y+1+row, innerWidth, tview.AlignLeft, tcell.ColorWhite)
 	}
 }
 
@@ -92,4 +96,17 @@ func fit(maximum, available int) int {
 	}
 
 	return maximum
+}
+
+func visibleLines(lines []string, height int) []string {
+	if height <= 0 {
+		return nil
+	}
+	if len(lines) <= height {
+		return lines
+	}
+
+	visible := append([]string(nil), lines[:height]...)
+	visible[len(visible)-1] = dismissalPrompt
+	return visible
 }
