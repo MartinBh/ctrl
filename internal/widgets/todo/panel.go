@@ -27,6 +27,12 @@ func (p *Panel) Primitive() tview.Primitive {
 	return p.list
 }
 
+func (p *Panel) SetLoading() {
+	p.todos = nil
+	p.list.Clear()
+	p.list.AddItem("[gray]Loading todos...", "", 0, nil)
+}
+
 func (p *Panel) SetTodos(todos []store.Todo) {
 	selectedIndex := p.list.GetCurrentItem()
 	selectedID := p.selectedID()

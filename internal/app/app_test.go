@@ -1,12 +1,15 @@
 package app
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 
+	"github.com/martinbhatta/ctrl/internal/probes"
 	"github.com/martinbhatta/ctrl/internal/store"
 )
 
@@ -69,6 +72,74 @@ func TestDismissHelpPersistsTutorialSeen(t *testing.T) {
 	}
 	if !config.TutorialSeen {
 		t.Fatal("TutorialSeen = false, want true")
+	}
+}
+
+func TestConfigureSeedsLoadingState(t *testing.T) {
+	dashboard := testDashboard(t)
+	dashboard.probes = []probes.Probe{staticProbe{name: "Slow"}}
+
+	dashboard.configure()
+
+	todoList := dashboard.todos.Primitive().(*tview.List)
+	main, _ := todoList.GetItemText(0)
+	if main != "[gray]Loading todos..." {
+		t.Fatalf("todo loading text = %q, want loading state", main)
+	}
+
+	envTable := dashboard.env.Primitive().(*tview.Table)
+	if got := envTable.GetCell(1, 1).Text; got != "checking" {
+		t.Fatalf("environment status = %q, want checking", got)
+	}
+
+	usageTable := dashboard.usage.Primitive().(*tview.Table)
+	if got := usageTable.GetCell(1, 1).Text; got != "checking" {
+		t.Fatalf("usage status = %q, want checking", got)
+	}
+
+	batteryTable := dashboard.battery.Primitive().(*tview.Table)
+	if got := batteryTable.GetCell(0, 1).Text; got != "checking" {
+		t.Fatalf("battery status = %q, want checking", got)
+	}
+}
+
+func TestRunStartsBeforeInitialRefreshCompletes(t *testing.T) {
+	dashboard := testDashboard(t)
+	dashboard.app.SetScreen(tcell.NewSimulationScreen(""))
+
+	slowProbe := &blockingProbe{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	dashboard.probes = []probes.Probe{slowProbe}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- dashboard.Run(ctx)
+	}()
+
+	waitForSignal(t, slowProbe.started, "slow probe to start")
+
+	rendered := make(chan struct{})
+	dashboard.app.QueueUpdateDraw(func() {
+		close(rendered)
+	})
+	waitForSignal(t, rendered, "application update to run")
+
+	cancel()
+	close(slowProbe.release)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		dashboard.app.Stop()
+		t.Fatal("Run() did not stop after context cancellation")
 	}
 }
 
@@ -149,4 +220,46 @@ func testDashboard(t *testing.T) *Dashboard {
 		TodoPath:     filepath.Join(dir, "todos.json"),
 		RefreshEvery: time.Minute,
 	})
+}
+
+type staticProbe struct {
+	name string
+}
+
+func (p staticProbe) Name() string {
+	return p.name
+}
+
+func (p staticProbe) Check(context.Context) probes.Status {
+	return probes.Status{Name: p.name, Value: "ok", Level: probes.LevelOK}
+}
+
+type blockingProbe struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingProbe) Name() string {
+	return "Slow"
+}
+
+func (p *blockingProbe) Check(ctx context.Context) probes.Status {
+	close(p.started)
+
+	select {
+	case <-p.release:
+		return probes.Status{Name: p.Name(), Value: "ok", Level: probes.LevelOK}
+	case <-ctx.Done():
+		return probes.Status{Name: p.Name(), Value: "timeout", Detail: ctx.Err().Error(), Level: probes.LevelError}
+	}
+}
+
+func waitForSignal(t *testing.T, ch <-chan struct{}, name string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
 }

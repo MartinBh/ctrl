@@ -23,6 +23,21 @@ func TestPanelShowsActionableEmptyState(t *testing.T) {
 	}
 }
 
+func TestPanelShowsLoadingState(t *testing.T) {
+	panel := NewPanel()
+	panel.SetTodos([]store.Todo{{ID: "one", Title: "First"}})
+
+	panel.SetLoading()
+
+	main, _ := panel.list.GetItemText(0)
+	if main != "[gray]Loading todos..." {
+		t.Fatalf("loading state = %q", main)
+	}
+	if _, ok := panel.SelectedTodo(); ok {
+		t.Fatal("SelectedTodo() returned a todo for loading state")
+	}
+}
+
 func TestPanelTracksSelectedTodo(t *testing.T) {
 	panel := NewPanel()
 	panel.SetTodos([]store.Todo{
