@@ -378,17 +378,12 @@ func (d *Dashboard) dismissHelp() {
 }
 
 func (d *Dashboard) refreshAsync(ctx context.Context, resetFooter bool) {
-	todos, todoErr := d.todoStore.Load()
 	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
 	usageRows := d.checkUsage(ctx)
 	batteryStatus := d.checkBattery(ctx)
 
 	d.app.QueueUpdateDraw(func() {
-		if todoErr != nil {
-			d.todos.SetError(todoErr)
-		} else {
-			d.todos.SetTodos(todos)
-		}
+		d.refreshTodos()
 		d.env.SetStatuses(statuses)
 		d.usage.SetRows(usageRows)
 		d.battery.SetStatus(batteryStatus)
@@ -396,6 +391,16 @@ func (d *Dashboard) refreshAsync(ctx context.Context, resetFooter bool) {
 			d.setFooter(d.defaultFooter())
 		}
 	})
+}
+
+func (d *Dashboard) refreshTodos() {
+	todos, err := d.todoStore.Load()
+	if err != nil {
+		d.todos.SetError(err)
+		return
+	}
+
+	d.todos.SetTodos(todos)
 }
 
 func (d *Dashboard) checkUsage(ctx context.Context) []usageprobe.ResourceUsage {

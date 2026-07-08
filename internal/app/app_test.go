@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,56 @@ func TestRunStartsBeforeInitialRefreshCompletes(t *testing.T) {
 	}
 }
 
+func TestRefreshKeepsTodoChangesMadeDuringSlowProbe(t *testing.T) {
+	dashboard := testDashboard(t)
+	dashboard.app.SetScreen(tcell.NewSimulationScreen(""))
+
+	todos := []store.Todo{{ID: "todo-1", Title: "Old title"}}
+	if err := dashboard.todoStore.Save(todos); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	slowProbe := &blockingProbe{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+	dashboard.probes = []probes.Probe{slowProbe}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- dashboard.Run(ctx)
+	}()
+
+	waitForSignal(t, slowProbe.started, "slow probe to start")
+
+	updated, err := dashboard.todoStore.UpdateTitle("todo-1", "Fresh title")
+	if err != nil {
+		t.Fatalf("UpdateTitle() error = %v", err)
+	}
+	queueAndWait(t, dashboard, func() {
+		dashboard.todos.SetTodos(updated)
+	})
+
+	close(slowProbe.release)
+	waitForSignal(t, slowProbe.done, "slow probe to finish")
+	waitForTodoAndProbe(t, dashboard, "Fresh title", "ok")
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		dashboard.app.Stop()
+		t.Fatal("Run() did not stop after context cancellation")
+	}
+}
+
 func TestAddShortcutOpensAndEscapeClosesTodoInput(t *testing.T) {
 	dashboard := testDashboard(t)
 	dashboard.configure()
@@ -237,6 +288,7 @@ func (p staticProbe) Check(context.Context) probes.Status {
 type blockingProbe struct {
 	started chan struct{}
 	release chan struct{}
+	done    chan struct{}
 }
 
 func (p *blockingProbe) Name() string {
@@ -245,12 +297,74 @@ func (p *blockingProbe) Name() string {
 
 func (p *blockingProbe) Check(ctx context.Context) probes.Status {
 	close(p.started)
+	if p.done != nil {
+		defer close(p.done)
+	}
 
 	select {
 	case <-p.release:
 		return probes.Status{Name: p.Name(), Value: "ok", Level: probes.LevelOK}
 	case <-ctx.Done():
 		return probes.Status{Name: p.Name(), Value: "timeout", Detail: ctx.Err().Error(), Level: probes.LevelError}
+	}
+}
+
+func queueAndWait(t *testing.T, dashboard *Dashboard, update func()) {
+	t.Helper()
+
+	done := make(chan struct{})
+	dashboard.app.QueueUpdateDraw(func() {
+		update()
+		close(done)
+	})
+	waitForSignal(t, done, "queued update to run")
+}
+
+func waitForTodoAndProbe(t *testing.T, dashboard *Dashboard, todoTitle string, probeValue string) {
+	t.Helper()
+
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for todo %q and probe %q", todoTitle, probeValue)
+		case <-ticker.C:
+			state := readDashboardState(t, dashboard)
+			if strings.Contains(state.todo, todoTitle) && state.probe == probeValue {
+				return
+			}
+		}
+	}
+}
+
+type dashboardState struct {
+	todo  string
+	probe string
+}
+
+func readDashboardState(t *testing.T, dashboard *Dashboard) dashboardState {
+	t.Helper()
+
+	ch := make(chan dashboardState, 1)
+	dashboard.app.QueueUpdateDraw(func() {
+		todoList := dashboard.todos.Primitive().(*tview.List)
+		todo, _ := todoList.GetItemText(0)
+
+		envTable := dashboard.env.Primitive().(*tview.Table)
+		probe := envTable.GetCell(1, 1).Text
+
+		ch <- dashboardState{todo: todo, probe: probe}
+	})
+
+	select {
+	case state := <-ch:
+		return state
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out reading dashboard state")
+		return dashboardState{}
 	}
 }
 
