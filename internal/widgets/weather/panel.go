@@ -94,6 +94,7 @@ func (p *Panel) SetForecasts(forecasts []weatherprobe.Forecast) {
 	}
 
 	p.active = indexForLocation(p.forecasts, selectedLocation)
+	p.status.SetText(p.statusText())
 	p.render()
 }
 
@@ -182,6 +183,30 @@ func (p *Panel) render() {
 	p.detailTitle.SetText(fmt.Sprintf("[turquoise]%s forecast[-]  [gray]1/2 or left/right changes location · t returns to todos[-]", forecast.Location.Name))
 	p.renderPeriods(forecast.Hourly)
 	p.daily.SetText(p.dailyText(forecast.Daily))
+}
+
+func (p *Panel) statusText() string {
+	stale := make([]string, 0, len(p.forecasts))
+	unavailable := make([]string, 0, len(p.forecasts))
+	for _, forecast := range p.forecasts {
+		switch {
+		case p.stale[forecast.Location.Name]:
+			stale = append(stale, forecast.Location.Name)
+		case forecast.Err != nil:
+			unavailable = append(unavailable, forecast.Location.Name)
+		}
+	}
+
+	switch {
+	case len(p.forecasts) == 0:
+		return "[red]Open-Meteo · weather is unavailable[-]"
+	case len(unavailable) > 0:
+		return fmt.Sprintf("[red]Open-Meteo · weather unavailable for %s[-]", strings.Join(unavailable, ", "))
+	case len(stale) > 0:
+		return fmt.Sprintf("[yellow]Open-Meteo · showing last successful conditions for %s[-]", strings.Join(stale, ", "))
+	default:
+		return "[gray]Open-Meteo · current conditions[-]"
+	}
 }
 
 func (p *Panel) cardText(forecast weatherprobe.Forecast) string {

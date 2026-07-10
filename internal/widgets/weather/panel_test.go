@@ -34,6 +34,9 @@ func TestPanelShowsCardsAndSelectedForecast(t *testing.T) {
 	if got := panel.detailTitle.GetText(true); !strings.Contains(got, "Gangnam-gu forecast") {
 		t.Fatalf("detail title = %q, want Gangnam forecast", got)
 	}
+	if got := panel.status.GetText(true); !strings.Contains(got, "current conditions") {
+		t.Fatalf("status = %q, want current conditions", got)
+	}
 	if got := panel.daily.GetText(true); !strings.Contains(got, "7-DAY OUTLOOK") {
 		t.Fatalf("daily outlook = %q, want heading", got)
 	}
@@ -92,6 +95,18 @@ func TestPanelRetainsLastForecastWhenRefreshFails(t *testing.T) {
 	card := panel.cards.GetItem(0).(*tview.TextView).GetText(true)
 	if !strings.Contains(card, "STALE") || !strings.Contains(card, "CLEAR") {
 		t.Fatalf("stale card = %q, want stale retained forecast", card)
+	}
+	if got := panel.status.GetText(true); !strings.Contains(got, "last successful") {
+		t.Fatalf("status = %q, want stale status", got)
+	}
+}
+
+func TestPanelShowsUnavailableStatus(t *testing.T) {
+	panel := NewPanel()
+	panel.SetForecasts([]weatherprobe.Forecast{{Location: weatherprobe.Location{Name: "Gangnam-gu"}, Err: errors.New("request timed out")}})
+
+	if got := panel.status.GetText(true); !strings.Contains(got, "weather unavailable") {
+		t.Fatalf("status = %q, want unavailable status", got)
 	}
 }
 
