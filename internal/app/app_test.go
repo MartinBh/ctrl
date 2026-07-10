@@ -11,6 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/martinbhatta/ctrl/internal/probes"
+	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
 	"github.com/martinbhatta/ctrl/internal/store"
 )
 
@@ -28,6 +29,18 @@ func TestQuestionMarkOpensHelp(t *testing.T) {
 	}
 	if !dashboard.pages.HasPage(helpPageName) {
 		t.Fatal("help page was not added")
+	}
+}
+
+func TestWeatherShortcutFocusesForecastTable(t *testing.T) {
+	dashboard := testDashboard(t)
+	dashboard.configure()
+
+	if got := dashboard.handleKey(tcell.NewEventKey(tcell.KeyRune, 'w', tcell.ModNone)); got != nil {
+		t.Fatalf("handleKey(w) = %v, want nil", got)
+	}
+	if got, want := dashboard.app.GetFocus(), dashboard.weather.Primitive(); got != want {
+		t.Fatal("weather table was not focused")
 	}
 }
 
@@ -98,6 +111,11 @@ func TestConfigureSeedsLoadingState(t *testing.T) {
 		t.Fatalf("usage status = %q, want checking", got)
 	}
 
+	weatherTable := dashboard.weather.Primitive().(*tview.Table)
+	if got := weatherTable.GetCell(1, 0).Text; got == "" {
+		t.Fatal("weather loading state is empty")
+	}
+
 	batteryTable := dashboard.battery.Primitive().(*tview.Table)
 	if got := batteryTable.GetCell(0, 1).Text; got != "checking" {
 		t.Fatalf("battery status = %q, want checking", got)
@@ -133,6 +151,37 @@ func TestRunStartsBeforeInitialRefreshCompletes(t *testing.T) {
 	cancel()
 	close(slowProbe.release)
 
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		dashboard.app.Stop()
+		t.Fatal("Run() did not stop after context cancellation")
+	}
+}
+
+func TestRefreshStartsWeatherBeforeSlowProbeCompletes(t *testing.T) {
+	dashboard := testDashboard(t)
+	dashboard.app.SetScreen(tcell.NewSimulationScreen(""))
+
+	slowProbe := &blockingProbe{started: make(chan struct{}), release: make(chan struct{})}
+	slowWeather := &blockingWeatherChecker{started: make(chan struct{}), release: make(chan struct{})}
+	dashboard.probes = []probes.Probe{slowProbe}
+	dashboard.weatherClient = slowWeather
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- dashboard.Run(ctx) }()
+
+	waitForSignal(t, slowProbe.started, "slow probe to start")
+	waitForSignal(t, slowWeather.started, "weather refresh to start")
+
+	close(slowProbe.release)
+	close(slowWeather.release)
+	cancel()
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -265,12 +314,20 @@ func testDashboard(t *testing.T) *Dashboard {
 	t.Helper()
 
 	dir := t.TempDir()
-	return New(Options{
+	dashboard := New(Options{
 		Version:      "test",
 		ConfigPath:   filepath.Join(dir, "config.json"),
 		TodoPath:     filepath.Join(dir, "todos.json"),
 		RefreshEvery: time.Minute,
 	})
+	dashboard.weatherClient = staticWeatherChecker{}
+	return dashboard
+}
+
+type staticWeatherChecker struct{}
+
+func (staticWeatherChecker) Forecasts(context.Context) []weatherprobe.Forecast {
+	return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0]}}
 }
 
 type staticProbe struct {
@@ -289,6 +346,21 @@ type blockingProbe struct {
 	started chan struct{}
 	release chan struct{}
 	done    chan struct{}
+}
+
+type blockingWeatherChecker struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingWeatherChecker) Forecasts(ctx context.Context) []weatherprobe.Forecast {
+	close(c.started)
+	select {
+	case <-c.release:
+		return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0]}}
+	case <-ctx.Done():
+		return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0], Err: ctx.Err()}}
+	}
 }
 
 func (p *blockingProbe) Name() string {

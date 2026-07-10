@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -11,6 +12,7 @@ import (
 	"github.com/martinbhatta/ctrl/internal/probes"
 	batteryprobe "github.com/martinbhatta/ctrl/internal/probes/battery"
 	usageprobe "github.com/martinbhatta/ctrl/internal/probes/usage"
+	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
 	"github.com/martinbhatta/ctrl/internal/store"
 	"github.com/martinbhatta/ctrl/internal/theme"
 	batterywidget "github.com/martinbhatta/ctrl/internal/widgets/battery"
@@ -18,6 +20,7 @@ import (
 	helpwidget "github.com/martinbhatta/ctrl/internal/widgets/help"
 	todowidget "github.com/martinbhatta/ctrl/internal/widgets/todo"
 	usagewidget "github.com/martinbhatta/ctrl/internal/widgets/usage"
+	weatherwidget "github.com/martinbhatta/ctrl/internal/widgets/weather"
 )
 
 const (
@@ -43,13 +46,19 @@ type Dashboard struct {
 	env                *envwidget.Panel
 	usage              *usagewidget.Panel
 	battery            *batterywidget.Panel
+	weather            *weatherwidget.Panel
 	footer             *tview.TextView
 	config             store.Config
 	configStore        *store.ConfigStore
 	todoStore          *store.TodoStore
 	probes             []probes.Probe
+	weatherClient      weatherChecker
 	helpVisible        bool
 	todoOverlayVisible bool
+}
+
+type weatherChecker interface {
+	Forecasts(context.Context) []weatherprobe.Forecast
 }
 
 func New(options Options) *Dashboard {
@@ -58,16 +67,18 @@ func New(options Options) *Dashboard {
 	}
 
 	return &Dashboard{
-		options:     options,
-		app:         tview.NewApplication(),
-		todos:       todowidget.NewPanel(),
-		env:         envwidget.NewPanel(),
-		usage:       usagewidget.NewPanel(),
-		battery:     batterywidget.NewPanel(),
-		footer:      tview.NewTextView().SetDynamicColors(true),
-		configStore: store.NewConfigStore(options.ConfigPath),
-		todoStore:   store.NewTodoStore(options.TodoPath),
-		probes:      probes.Default(),
+		options:       options,
+		app:           tview.NewApplication(),
+		todos:         todowidget.NewPanel(),
+		env:           envwidget.NewPanel(),
+		usage:         usagewidget.NewPanel(),
+		battery:       batterywidget.NewPanel(),
+		weather:       weatherwidget.NewPanel(),
+		footer:        tview.NewTextView().SetDynamicColors(true),
+		configStore:   store.NewConfigStore(options.ConfigPath),
+		todoStore:     store.NewTodoStore(options.TodoPath),
+		probes:        probes.Default(),
+		weatherClient: weatherprobe.NewClient(),
 	}
 }
 
@@ -108,6 +119,7 @@ func (d *Dashboard) configure() {
 	sidebar.AddItem(d.env.Primitive(), 0, 2, false)
 	sidebar.AddItem(d.usage.Primitive(), 0, 1, false)
 	sidebar.AddItem(d.battery.Primitive(), 4, 0, false)
+	sidebar.AddItem(d.weather.Primitive(), 0, 8, false)
 
 	body.AddItem(d.todos.Primitive(), 0, 1, true)
 	body.AddItem(sidebar, 0, 1, false)
@@ -188,6 +200,9 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case '?':
 			d.showHelp()
+			return nil
+		case 'w':
+			d.app.SetFocus(d.weather.Primitive())
 			return nil
 		}
 	}
@@ -378,15 +393,39 @@ func (d *Dashboard) dismissHelp() {
 }
 
 func (d *Dashboard) refreshAsync(ctx context.Context, resetFooter bool) {
-	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
-	usageRows := d.checkUsage(ctx)
-	batteryStatus := d.checkBattery(ctx)
+	var (
+		statuses         []probes.Status
+		usageRows        []usageprobe.ResourceUsage
+		batteryStatus    batteryprobe.Status
+		weatherForecasts []weatherprobe.Forecast
+		waitGroup        sync.WaitGroup
+	)
+
+	waitGroup.Add(4)
+	go func() {
+		defer waitGroup.Done()
+		statuses = probes.CheckAll(ctx, d.probes, 5*time.Second)
+	}()
+	go func() {
+		defer waitGroup.Done()
+		usageRows = d.checkUsage(ctx)
+	}()
+	go func() {
+		defer waitGroup.Done()
+		batteryStatus = d.checkBattery(ctx)
+	}()
+	go func() {
+		defer waitGroup.Done()
+		weatherForecasts = d.checkWeather(ctx)
+	}()
+	waitGroup.Wait()
 
 	d.app.QueueUpdateDraw(func() {
 		d.refreshTodos()
 		d.env.SetStatuses(statuses)
 		d.usage.SetRows(usageRows)
 		d.battery.SetStatus(batteryStatus)
+		d.weather.SetForecasts(weatherForecasts)
 		if resetFooter {
 			d.setFooter(d.defaultFooter())
 		}
@@ -417,6 +456,13 @@ func (d *Dashboard) checkBattery(ctx context.Context) batteryprobe.Status {
 	return batteryprobe.Check(batteryCtx)
 }
 
+func (d *Dashboard) checkWeather(ctx context.Context) []weatherprobe.Forecast {
+	weatherCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	return d.weatherClient.Forecasts(weatherCtx)
+}
+
 func (d *Dashboard) refreshLoop(ctx context.Context) {
 	ticker := time.NewTicker(d.options.RefreshEvery)
 	defer ticker.Stop()
@@ -441,6 +487,7 @@ func (d *Dashboard) showLoadingState() {
 		Detail:  "battery status pending",
 		Level:   probes.LevelMuted,
 	})
+	d.weather.SetLoading()
 }
 
 func loadingProbeStatuses(checks []probes.Probe) []probes.Status {
@@ -462,7 +509,7 @@ func (d *Dashboard) setFooter(text string) {
 }
 
 func (d *Dashboard) defaultFooter() string {
-	return "a add | e edit | space complete | d delete | r refresh | ? help | q quit | data " + d.options.TodoPath
+	return "a add | e edit | space complete | d delete | w weather | r refresh | ? help | q quit | Weather: Open-Meteo | data " + d.options.TodoPath
 }
 
 func centeredPrimitive(primitive tview.Primitive, width int, height int) tview.Primitive {
