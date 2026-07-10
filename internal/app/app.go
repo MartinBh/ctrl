@@ -512,7 +512,7 @@ func (d *Dashboard) setFooter(text string) {
 }
 
 func (d *Dashboard) defaultFooter() string {
-	return "a add | e edit | space complete | d delete | w weather | 1/2 location | t todos | r refresh | ? help | q quit | Weather: Open-Meteo"
+	return "a add | e edit | space complete | d delete | w weather | t todos | r refresh | ? help | q quit | Weather: Open-Meteo"
 }
 
 func centeredPrimitive(primitive tview.Primitive, width int, height int) tview.Primitive {

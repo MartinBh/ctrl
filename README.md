@@ -42,9 +42,9 @@ make check
 - Environment panel with probes for Docker daemon, Node, Python, Go, and Foundry Forge
 - Usage panel with RAM and primary disk availability
 - Battery panel with charge state or no-battery status
-- Weather pane with side-by-side current-condition cards, time-of-day summaries, and a seven-day forecast for Gangnam-gu and Sangbong-dong, Seoul (Weather: Open-Meteo)
+- Weather pane with a public-IP-derived local forecast, time-of-day summaries, and a seven-day outlook (Weather: Open-Meteo)
 - First-launch tutorial and reusable help overlay with `?`
 - Manual refresh with `r`
 - Automatic dashboard refresh every five minutes
-- Todo shortcuts: `a` add, `e` edit, `space` complete/reopen, `d` delete; weather shortcuts: `w` focus, `1`/`2` or arrows switch location, `t` return to todos
+- Todo shortcuts: `a` add, `e` edit, `space` complete/reopen, `d` delete; weather shortcuts: `w` focus and `t` return to todos
 - Quit with `q` or `Ctrl+C`

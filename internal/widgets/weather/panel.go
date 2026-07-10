@@ -4,14 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
 	"github.com/martinbhatta/ctrl/internal/theme"
 )
-
-const compactLayoutWidth = 90
 
 type Panel struct {
 	root           *tview.Flex
@@ -23,8 +20,6 @@ type Panel struct {
 	forecasts      []weatherprobe.Forecast
 	lastSuccessful map[string]weatherprobe.Forecast
 	stale          map[string]bool
-	active         int
-	narrow         bool
 }
 
 func NewPanel() *Panel {
@@ -43,11 +38,6 @@ func NewPanel() *Panel {
 	p.root.AddItem(p.detailTitle, 1, 0, false)
 	p.root.AddItem(p.periods, 6, 0, false)
 	p.root.AddItem(p.daily, 0, 1, false)
-	p.root.SetInputCapture(p.handleKey)
-	p.root.SetDrawFunc(func(_ tcell.Screen, x, y, width, height int) (int, int, int, int) {
-		p.adaptLayout(width)
-		return x + 1, y + 1, max(0, width-2), max(0, height-2)
-	})
 	theme.Box(p.root.Box, "WEATHER")
 	p.SetLoading()
 
@@ -60,21 +50,17 @@ func (p *Panel) Primitive() tview.Primitive {
 
 func (p *Panel) SetLoading() {
 	p.forecasts = nil
-	p.active = 0
-	p.status.SetText("[gray]Open-Meteo · loading weather for Gangnam-gu and Sangbong-dong[-]")
+	p.status.SetText("[gray]Open-Meteo · resolving your public-IP location[-]")
 	p.cards.Clear()
-	for _, location := range weatherprobe.Locations {
-		card := cardView(location.Name)
-		card.SetText("[gray]Loading current conditions...[-]")
-		p.cards.AddItem(card, 0, 1, false)
-	}
+	card := cardView("LOCAL WEATHER")
+	card.SetText("[gray]Resolving location and loading current conditions...[-]")
+	p.cards.AddItem(card, 0, 1, false)
 	p.detailTitle.SetText("[gray]Forecast detail will appear after loading.[-]")
 	p.periods.Clear()
 	p.daily.SetText("")
 }
 
 func (p *Panel) SetForecasts(forecasts []weatherprobe.Forecast) {
-	selectedLocation := p.selectedLocation()
 	p.forecasts = make([]weatherprobe.Forecast, 0, len(forecasts))
 	p.stale = make(map[string]bool)
 
@@ -93,65 +79,8 @@ func (p *Panel) SetForecasts(forecasts []weatherprobe.Forecast) {
 		p.forecasts = append(p.forecasts, forecast)
 	}
 
-	p.active = indexForLocation(p.forecasts, selectedLocation)
 	p.status.SetText(p.statusText())
 	p.render()
-}
-
-func (p *Panel) SetActiveLocation(index int) bool {
-	if index < 0 || index >= len(p.forecasts) {
-		return false
-	}
-	p.active = index
-	p.render()
-	return true
-}
-
-func (p *Panel) handleKey(event *tcell.EventKey) *tcell.EventKey {
-	switch event.Key() {
-	case tcell.KeyLeft, tcell.KeyUp:
-		p.moveActive(-1)
-		return nil
-	case tcell.KeyRight, tcell.KeyDown, tcell.KeyTAB:
-		p.moveActive(1)
-		return nil
-	case tcell.KeyRune:
-		switch event.Rune() {
-		case '1':
-			p.SetActiveLocation(0)
-			return nil
-		case '2':
-			p.SetActiveLocation(1)
-			return nil
-		}
-	}
-
-	return event
-}
-
-func (p *Panel) moveActive(delta int) {
-	if len(p.forecasts) == 0 {
-		return
-	}
-	p.active = (p.active + delta + len(p.forecasts)) % len(p.forecasts)
-	p.render()
-}
-
-func (p *Panel) adaptLayout(width int) {
-	narrow := width < compactLayoutWidth
-	if narrow == p.narrow {
-		return
-	}
-	p.narrow = narrow
-
-	if narrow {
-		p.cards.SetDirection(tview.FlexRow)
-		p.root.ResizeItem(p.cards, 12, 0)
-		return
-	}
-
-	p.cards.SetDirection(tview.FlexColumn)
-	p.root.ResizeItem(p.cards, 6, 0)
 }
 
 func (p *Panel) render() {
@@ -168,19 +97,15 @@ func (p *Panel) render() {
 		p.daily.SetText("")
 		return
 	}
-	if p.active >= len(p.forecasts) {
-		p.active = 0
-	}
-
-	forecast := p.forecasts[p.active]
+	forecast := p.forecasts[0]
 	if forecast.Err != nil {
-		p.detailTitle.SetText(fmt.Sprintf("[red]%s forecast unavailable: %s[-]", forecast.Location.Name, tview.Escape(forecast.Err.Error())))
+		p.detailTitle.SetText(fmt.Sprintf("[red]%s forecast unavailable: %s[-]", displayLocationName(forecast.Location.Name), tview.Escape(forecast.Err.Error())))
 		p.periods.Clear()
 		p.daily.SetText("")
 		return
 	}
 
-	p.detailTitle.SetText(fmt.Sprintf("[turquoise]%s forecast[-]  [gray]1/2 or left/right changes location · t returns to todos[-]", forecast.Location.Name))
+	p.detailTitle.SetText(fmt.Sprintf("[turquoise]%s forecast[-]  [gray]location resolved from your public IP[-]", displayLocationName(forecast.Location.Name)))
 	p.renderPeriods(forecast.Hourly)
 	p.daily.SetText(p.dailyText(forecast.Daily))
 }
@@ -201,12 +126,24 @@ func (p *Panel) statusText() string {
 	case len(p.forecasts) == 0:
 		return "[red]Open-Meteo · weather is unavailable[-]"
 	case len(unavailable) > 0:
-		return fmt.Sprintf("[red]Open-Meteo · weather unavailable for %s[-]", strings.Join(unavailable, ", "))
+		return fmt.Sprintf("[red]Open-Meteo · weather unavailable for %s[-]", displayLocationNames(unavailable))
 	case len(stale) > 0:
-		return fmt.Sprintf("[yellow]Open-Meteo · showing last successful conditions for %s[-]", strings.Join(stale, ", "))
+		return fmt.Sprintf("[yellow]Open-Meteo · showing last successful conditions for %s[-]", displayLocationNames(stale))
 	default:
 		return "[gray]Open-Meteo · current conditions[-]"
 	}
+}
+
+func displayLocationName(name string) string {
+	return tview.Escape(name)
+}
+
+func displayLocationNames(names []string) string {
+	escaped := make([]string, len(names))
+	for index, name := range names {
+		escaped[index] = displayLocationName(name)
+	}
+	return strings.Join(escaped, ", ")
 }
 
 func (p *Panel) cardText(forecast weatherprobe.Forecast) string {
@@ -253,22 +190,6 @@ func (p *Panel) dailyText(daily []weatherprobe.Daily) string {
 			forecast.Date.Format("Mon 02"), visual.Color, visual.Label, forecast.High, forecast.Low, forecast.PrecipitationProbability, forecast.WindSpeed))
 	}
 	return strings.TrimSuffix(builder.String(), "\n")
-}
-
-func (p *Panel) selectedLocation() string {
-	if p.active < 0 || p.active >= len(p.forecasts) {
-		return ""
-	}
-	return p.forecasts[p.active].Location.Name
-}
-
-func indexForLocation(forecasts []weatherprobe.Forecast, location string) int {
-	for index, forecast := range forecasts {
-		if forecast.Location.Name == location {
-			return index
-		}
-	}
-	return 0
 }
 
 func cardView(title string) *tview.TextView {
