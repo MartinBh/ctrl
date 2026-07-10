@@ -326,7 +326,7 @@ func testDashboard(t *testing.T) *Dashboard {
 type staticWeatherChecker struct{}
 
 func (staticWeatherChecker) Forecasts(context.Context) []weatherprobe.Forecast {
-	return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0]}}
+	return []weatherprobe.Forecast{{Location: weatherprobe.Location{Name: "Local weather"}}}
 }
 
 type staticProbe struct {
@@ -356,9 +356,9 @@ func (c *blockingWeatherChecker) Forecasts(ctx context.Context) []weatherprobe.F
 	close(c.started)
 	select {
 	case <-c.release:
-		return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0]}}
+		return []weatherprobe.Forecast{{Location: weatherprobe.Location{Name: "Local weather"}}}
 	case <-ctx.Done():
-		return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0], Err: ctx.Err()}}
+		return []weatherprobe.Forecast{{Location: weatherprobe.Location{Name: "Local weather"}, Err: ctx.Err()}}
 	}
 }
 
