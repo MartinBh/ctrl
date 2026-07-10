@@ -99,13 +99,13 @@ func (p *Panel) render() {
 	}
 	forecast := p.forecasts[0]
 	if forecast.Err != nil {
-		p.detailTitle.SetText(fmt.Sprintf("[red]%s forecast unavailable: %s[-]", forecast.Location.Name, tview.Escape(forecast.Err.Error())))
+		p.detailTitle.SetText(fmt.Sprintf("[red]%s forecast unavailable: %s[-]", displayLocationName(forecast.Location.Name), tview.Escape(forecast.Err.Error())))
 		p.periods.Clear()
 		p.daily.SetText("")
 		return
 	}
 
-	p.detailTitle.SetText(fmt.Sprintf("[turquoise]%s forecast[-]  [gray]location resolved from your public IP[-]", forecast.Location.Name))
+	p.detailTitle.SetText(fmt.Sprintf("[turquoise]%s forecast[-]  [gray]location resolved from your public IP[-]", displayLocationName(forecast.Location.Name)))
 	p.renderPeriods(forecast.Hourly)
 	p.daily.SetText(p.dailyText(forecast.Daily))
 }
@@ -126,12 +126,24 @@ func (p *Panel) statusText() string {
 	case len(p.forecasts) == 0:
 		return "[red]Open-Meteo · weather is unavailable[-]"
 	case len(unavailable) > 0:
-		return fmt.Sprintf("[red]Open-Meteo · weather unavailable for %s[-]", strings.Join(unavailable, ", "))
+		return fmt.Sprintf("[red]Open-Meteo · weather unavailable for %s[-]", displayLocationNames(unavailable))
 	case len(stale) > 0:
-		return fmt.Sprintf("[yellow]Open-Meteo · showing last successful conditions for %s[-]", strings.Join(stale, ", "))
+		return fmt.Sprintf("[yellow]Open-Meteo · showing last successful conditions for %s[-]", displayLocationNames(stale))
 	default:
 		return "[gray]Open-Meteo · current conditions[-]"
 	}
+}
+
+func displayLocationName(name string) string {
+	return tview.Escape(name)
+}
+
+func displayLocationNames(names []string) string {
+	escaped := make([]string, len(names))
+	for index, name := range names {
+		escaped[index] = displayLocationName(name)
+	}
+	return strings.Join(escaped, ", ")
 }
 
 func (p *Panel) cardText(forecast weatherprobe.Forecast) string {

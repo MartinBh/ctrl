@@ -65,6 +65,19 @@ func TestPanelShowsUnavailableStatus(t *testing.T) {
 	}
 }
 
+func TestPanelEscapesExternalLocationName(t *testing.T) {
+	panel := NewPanel()
+	panel.SetForecasts([]weatherprobe.Forecast{forecast(t, "[red]Injected", 1)})
+
+	if got := panel.detailTitle.GetText(false); strings.Contains(got, "[red]Injected") {
+		t.Fatalf("detail title = %q, want escaped location name", got)
+	}
+	panel.SetForecasts([]weatherprobe.Forecast{{Location: weatherprobe.Location{Name: "[red]Injected"}, Err: errors.New("request timed out")}})
+	if got := panel.status.GetText(false); strings.Contains(got, "[red]Injected") {
+		t.Fatalf("status = %q, want escaped location name", got)
+	}
+}
+
 func forecast(t *testing.T, name string, weatherCode int) weatherprobe.Forecast {
 	t.Helper()
 	return weatherprobe.Forecast{
