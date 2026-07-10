@@ -11,6 +11,8 @@ import (
 	"github.com/martinbhatta/ctrl/internal/theme"
 )
 
+const compactLayoutWidth = 90
+
 type Panel struct {
 	root           *tview.Flex
 	status         *tview.TextView
@@ -22,6 +24,7 @@ type Panel struct {
 	lastSuccessful map[string]weatherprobe.Forecast
 	stale          map[string]bool
 	active         int
+	narrow         bool
 }
 
 func NewPanel() *Panel {
@@ -41,6 +44,10 @@ func NewPanel() *Panel {
 	p.root.AddItem(p.periods, 6, 0, false)
 	p.root.AddItem(p.daily, 0, 1, false)
 	p.root.SetInputCapture(p.handleKey)
+	p.root.SetDrawFunc(func(_ tcell.Screen, x, y, width, height int) (int, int, int, int) {
+		p.adaptLayout(width)
+		return x + 1, y + 1, max(0, width-2), max(0, height-2)
+	})
 	theme.Box(p.root.Box, "WEATHER")
 	p.SetLoading()
 
@@ -127,6 +134,23 @@ func (p *Panel) moveActive(delta int) {
 	}
 	p.active = (p.active + delta + len(p.forecasts)) % len(p.forecasts)
 	p.render()
+}
+
+func (p *Panel) adaptLayout(width int) {
+	narrow := width < compactLayoutWidth
+	if narrow == p.narrow {
+		return
+	}
+	p.narrow = narrow
+
+	if narrow {
+		p.cards.SetDirection(tview.FlexRow)
+		p.root.ResizeItem(p.cards, 12, 0)
+		return
+	}
+
+	p.cards.SetDirection(tview.FlexColumn)
+	p.root.ResizeItem(p.cards, 6, 0)
 }
 
 func (p *Panel) render() {

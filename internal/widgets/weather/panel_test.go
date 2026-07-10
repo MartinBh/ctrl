@@ -54,6 +54,35 @@ func TestPanelChangesActiveLocationFromKeyboard(t *testing.T) {
 	}
 }
 
+func TestPanelStacksCardsOnNarrowTerminals(t *testing.T) {
+	panel := NewPanel()
+	panel.SetForecasts([]weatherprobe.Forecast{forecast(t, "Gangnam-gu", 1), forecast(t, "Sangbong-dong", 61)})
+
+	screen := tcell.NewSimulationScreen("")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	defer screen.Fini()
+
+	screen.SetSize(70, 32)
+	panel.root.SetRect(0, 0, 70, 32)
+	panel.root.Draw(screen)
+	_, firstY, _, _ := panel.cards.GetItem(0).GetRect()
+	secondX, secondY, _, _ := panel.cards.GetItem(1).GetRect()
+	if !panel.narrow || secondX != 1 || secondY <= firstY {
+		t.Fatalf("narrow cards = narrow:%t x:%d y:%d, want stacked cards", panel.narrow, secondX, secondY)
+	}
+
+	screen.SetSize(100, 32)
+	panel.root.SetRect(0, 0, 100, 32)
+	panel.root.Draw(screen)
+	firstX, wideFirstY, _, _ := panel.cards.GetItem(0).GetRect()
+	wideSecondX, wideSecondY, _, _ := panel.cards.GetItem(1).GetRect()
+	if panel.narrow || wideSecondX <= firstX || wideSecondY != wideFirstY {
+		t.Fatalf("wide cards = narrow:%t first:(%d,%d) second:(%d,%d), want side-by-side cards", panel.narrow, firstX, wideFirstY, wideSecondX, wideSecondY)
+	}
+}
+
 func TestPanelRetainsLastForecastWhenRefreshFails(t *testing.T) {
 	panel := NewPanel()
 	success := forecast(t, "Gangnam-gu", 0)
