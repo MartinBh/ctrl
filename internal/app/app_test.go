@@ -11,6 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/martinbhatta/ctrl/internal/probes"
+	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
 	"github.com/martinbhatta/ctrl/internal/store"
 )
 
@@ -96,6 +97,11 @@ func TestConfigureSeedsLoadingState(t *testing.T) {
 	usageTable := dashboard.usage.Primitive().(*tview.Table)
 	if got := usageTable.GetCell(1, 1).Text; got != "checking" {
 		t.Fatalf("usage status = %q, want checking", got)
+	}
+
+	weatherTable := dashboard.weather.Primitive().(*tview.Table)
+	if got := weatherTable.GetCell(1, 0).Text; got == "" {
+		t.Fatal("weather loading state is empty")
 	}
 
 	batteryTable := dashboard.battery.Primitive().(*tview.Table)
@@ -265,12 +271,20 @@ func testDashboard(t *testing.T) *Dashboard {
 	t.Helper()
 
 	dir := t.TempDir()
-	return New(Options{
+	dashboard := New(Options{
 		Version:      "test",
 		ConfigPath:   filepath.Join(dir, "config.json"),
 		TodoPath:     filepath.Join(dir, "todos.json"),
 		RefreshEvery: time.Minute,
 	})
+	dashboard.weatherClient = staticWeatherChecker{}
+	return dashboard
+}
+
+type staticWeatherChecker struct{}
+
+func (staticWeatherChecker) Forecasts(context.Context) []weatherprobe.Forecast {
+	return []weatherprobe.Forecast{{Location: weatherprobe.Locations[0]}}
 }
 
 type staticProbe struct {

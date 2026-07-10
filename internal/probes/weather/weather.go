@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -77,9 +78,15 @@ func NewClient() *Client {
 
 func (c *Client) Forecasts(ctx context.Context) []Forecast {
 	forecasts := make([]Forecast, len(Locations))
+	var waitGroup sync.WaitGroup
 	for index, location := range Locations {
-		forecasts[index] = c.forecast(ctx, location)
+		waitGroup.Add(1)
+		go func(index int, location Location) {
+			defer waitGroup.Done()
+			forecasts[index] = c.forecast(ctx, location)
+		}(index, location)
 	}
+	waitGroup.Wait()
 	return forecasts
 }
 

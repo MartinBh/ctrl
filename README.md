@@ -42,6 +42,7 @@ make check
 - Environment panel with probes for Docker daemon, Node, Python, Go, and Foundry Forge
 - Usage panel with RAM and primary disk availability
 - Battery panel with charge state or no-battery status
+- Weather pane with current, hourly, and seven-day forecasts for Gangnam-gu and Sangbong-dong, Seoul (Weather: Open-Meteo)
 - First-launch tutorial and reusable help overlay with `?`
 - Manual refresh with `r`
 - Automatic dashboard refresh every five minutes
