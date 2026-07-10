@@ -204,6 +204,9 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		case 'w':
 			d.app.SetFocus(d.weather.Primitive())
 			return nil
+		case 't':
+			d.app.SetFocus(d.todos.Primitive())
+			return nil
 		}
 	}
 
@@ -509,7 +512,7 @@ func (d *Dashboard) setFooter(text string) {
 }
 
 func (d *Dashboard) defaultFooter() string {
-	return "a add | e edit | space complete | d delete | w weather | r refresh | ? help | q quit | Weather: Open-Meteo | data " + d.options.TodoPath
+	return "a add | e edit | space complete | d delete | w weather | 1/2 location | t todos | r refresh | ? help | q quit | Weather: Open-Meteo"
 }
 
 func centeredPrimitive(primitive tview.Primitive, width int, height int) tview.Primitive {

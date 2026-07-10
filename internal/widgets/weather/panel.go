@@ -2,7 +2,9 @@ package weather
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
@@ -10,121 +12,222 @@ import (
 )
 
 type Panel struct {
-	table          *tview.Table
+	root           *tview.Flex
+	status         *tview.TextView
+	cards          *tview.Flex
+	detailTitle    *tview.TextView
+	periods        *tview.Flex
+	daily          *tview.TextView
+	forecasts      []weatherprobe.Forecast
 	lastSuccessful map[string]weatherprobe.Forecast
+	stale          map[string]bool
+	active         int
 }
 
 func NewPanel() *Panel {
-	table := tview.NewTable().
-		SetBorders(false).
-		SetSelectable(true, false)
-	theme.Box(table.Box, "WEATHER")
+	p := &Panel{
+		status:         textView(),
+		cards:          tview.NewFlex(),
+		detailTitle:    textView(),
+		periods:        tview.NewFlex(),
+		daily:          textView(),
+		lastSuccessful: make(map[string]weatherprobe.Forecast),
+		stale:          make(map[string]bool),
+	}
+	p.root = tview.NewFlex().SetDirection(tview.FlexRow)
+	p.root.AddItem(p.status, 1, 0, false)
+	p.root.AddItem(p.cards, 6, 0, false)
+	p.root.AddItem(p.detailTitle, 1, 0, false)
+	p.root.AddItem(p.periods, 6, 0, false)
+	p.root.AddItem(p.daily, 0, 1, false)
+	p.root.SetInputCapture(p.handleKey)
+	theme.Box(p.root.Box, "WEATHER")
+	p.SetLoading()
 
-	return &Panel{table: table, lastSuccessful: make(map[string]weatherprobe.Forecast)}
+	return p
 }
 
 func (p *Panel) Primitive() tview.Primitive {
-	return p.table
+	return p.root
 }
 
 func (p *Panel) SetLoading() {
-	p.table.Clear()
-	p.table.SetCell(0, 0, titleCell("Weather: Open-Meteo"))
-	p.table.SetCell(1, 0, mutedCell("Loading Gangnam-gu and Sangbong-dong forecasts..."))
+	p.forecasts = nil
+	p.active = 0
+	p.status.SetText("[gray]Open-Meteo · loading weather for Gangnam-gu and Sangbong-dong[-]")
+	p.cards.Clear()
+	for _, location := range weatherprobe.Locations {
+		card := cardView(location.Name)
+		card.SetText("[gray]Loading current conditions...[-]")
+		p.cards.AddItem(card, 0, 1, false)
+	}
+	p.detailTitle.SetText("[gray]Forecast detail will appear after loading.[-]")
+	p.periods.Clear()
+	p.daily.SetText("")
 }
 
 func (p *Panel) SetForecasts(forecasts []weatherprobe.Forecast) {
-	p.table.Clear()
-	row := 0
-	p.table.SetCell(row, 0, titleCell("Weather: Open-Meteo"))
-	row++
+	selectedLocation := p.selectedLocation()
+	p.forecasts = make([]weatherprobe.Forecast, 0, len(forecasts))
+	p.stale = make(map[string]bool)
 
 	for _, forecast := range forecasts {
-		stale := false
 		if forecast.Err != nil {
 			if previous, ok := p.lastSuccessful[forecast.Location.Name]; ok {
-				forecast = previous
-				stale = true
+				p.forecasts = append(p.forecasts, previous)
+				p.stale[forecast.Location.Name] = true
+				continue
 			}
-		} else {
-			p.lastSuccessful[forecast.Location.Name] = forecast
-		}
-
-		p.table.SetCell(row, 0, titleCell(forecast.Location.Name))
-		row++
-
-		if stale {
-			p.table.SetCell(row, 0, errorCell("Stale"))
-			p.table.SetCell(row, 1, mutedCell("Latest weather request failed; showing the last forecast."))
-			row++
-		}
-
-		if forecast.Err != nil && !stale {
-			p.table.SetCell(row, 0, errorCell("Unavailable"))
-			p.table.SetCell(row, 1, mutedCell(forecast.Err.Error()))
-			row += 2
+			p.forecasts = append(p.forecasts, forecast)
 			continue
 		}
 
-		p.table.SetCell(row, 0, headerCell("Now"))
-		p.table.SetCell(row, 1, accentCell(weatherprobe.Condition(forecast.Current.WeatherCode)))
-		p.table.SetCell(row, 2, mutedCell(fmt.Sprintf("%.0f°C feels %.0f°C", forecast.Current.Temperature, forecast.Current.ApparentTemperature)))
-		p.table.SetCell(row, 3, mutedCell(fmt.Sprintf("%d%% humidity", int(forecast.Current.Humidity))))
-		p.table.SetCell(row, 4, mutedCell(fmt.Sprintf("%.1f mm precip", forecast.Current.Precipitation)))
-		p.table.SetCell(row, 5, mutedCell(fmt.Sprintf("%.0f km/h %s", forecast.Current.WindSpeed, weatherprobe.WindDirection(forecast.Current.WindDirection))))
-		row++
+		p.lastSuccessful[forecast.Location.Name] = forecast
+		p.forecasts = append(p.forecasts, forecast)
+	}
 
-		p.table.SetCell(row, 0, headerCell("Next 8 hours"))
-		p.table.SetCell(row, 1, headerCell("Condition"))
-		p.table.SetCell(row, 2, headerCell("Temp"))
-		p.table.SetCell(row, 3, headerCell("Precip"))
-		p.table.SetCell(row, 4, headerCell("Wind"))
-		row++
-		for _, hourly := range forecast.Hourly {
-			p.table.SetCell(row, 0, accentCell(hourly.Time.Format("15:04")))
-			p.table.SetCell(row, 1, mutedCell(weatherprobe.Condition(hourly.WeatherCode)))
-			p.table.SetCell(row, 2, mutedCell(fmt.Sprintf("%.0f°C", hourly.Temperature)))
-			p.table.SetCell(row, 3, mutedCell(fmt.Sprintf("%.0f%%", hourly.PrecipitationProbability)))
-			p.table.SetCell(row, 4, mutedCell(fmt.Sprintf("%.0f km/h", hourly.WindSpeed)))
-			row++
-		}
+	p.active = indexForLocation(p.forecasts, selectedLocation)
+	p.render()
+}
 
-		p.table.SetCell(row, 0, headerCell("7-day forecast"))
-		p.table.SetCell(row, 1, headerCell("Condition"))
-		p.table.SetCell(row, 2, headerCell("High / Low"))
-		p.table.SetCell(row, 3, headerCell("Precip"))
-		p.table.SetCell(row, 4, headerCell("Wind"))
-		row++
-		for _, daily := range forecast.Daily {
-			p.table.SetCell(row, 0, accentCell(daily.Date.Format("Mon 02")))
-			p.table.SetCell(row, 1, mutedCell(weatherprobe.Condition(daily.WeatherCode)))
-			p.table.SetCell(row, 2, mutedCell(fmt.Sprintf("%.0f° / %.0f°", daily.High, daily.Low)))
-			p.table.SetCell(row, 3, mutedCell(fmt.Sprintf("%.0f%%", daily.PrecipitationProbability)))
-			p.table.SetCell(row, 4, mutedCell(fmt.Sprintf("%.0f km/h", daily.WindSpeed)))
-			row++
+func (p *Panel) SetActiveLocation(index int) bool {
+	if index < 0 || index >= len(p.forecasts) {
+		return false
+	}
+	p.active = index
+	p.render()
+	return true
+}
+
+func (p *Panel) handleKey(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Key() {
+	case tcell.KeyLeft, tcell.KeyUp:
+		p.moveActive(-1)
+		return nil
+	case tcell.KeyRight, tcell.KeyDown, tcell.KeyTAB:
+		p.moveActive(1)
+		return nil
+	case tcell.KeyRune:
+		switch event.Rune() {
+		case '1':
+			p.SetActiveLocation(0)
+			return nil
+		case '2':
+			p.SetActiveLocation(1)
+			return nil
 		}
-		row++
+	}
+
+	return event
+}
+
+func (p *Panel) moveActive(delta int) {
+	if len(p.forecasts) == 0 {
+		return
+	}
+	p.active = (p.active + delta + len(p.forecasts)) % len(p.forecasts)
+	p.render()
+}
+
+func (p *Panel) render() {
+	p.cards.Clear()
+	for _, forecast := range p.forecasts {
+		card := cardView(forecast.Location.Name)
+		card.SetText(p.cardText(forecast))
+		p.cards.AddItem(card, 0, 1, false)
+	}
+
+	if len(p.forecasts) == 0 {
+		p.detailTitle.SetText("[gray]Weather is unavailable.[-]")
+		p.periods.Clear()
+		p.daily.SetText("")
+		return
+	}
+	if p.active >= len(p.forecasts) {
+		p.active = 0
+	}
+
+	forecast := p.forecasts[p.active]
+	if forecast.Err != nil {
+		p.detailTitle.SetText(fmt.Sprintf("[red]%s forecast unavailable: %s[-]", forecast.Location.Name, tview.Escape(forecast.Err.Error())))
+		p.periods.Clear()
+		p.daily.SetText("")
+		return
+	}
+
+	p.detailTitle.SetText(fmt.Sprintf("[turquoise]%s forecast[-]  [gray]1/2 or left/right changes location · t returns to todos[-]", forecast.Location.Name))
+	p.renderPeriods(forecast.Hourly)
+	p.daily.SetText(p.dailyText(forecast.Daily))
+}
+
+func (p *Panel) cardText(forecast weatherprobe.Forecast) string {
+	if forecast.Err != nil {
+		return fmt.Sprintf("[red]Unavailable[-]\n[gray]%s[-]", tview.Escape(forecast.Err.Error()))
+	}
+
+	visual := weatherprobe.ConditionVisual(forecast.Current.WeatherCode)
+	stale := ""
+	if p.stale[forecast.Location.Name] {
+		stale = " [red]STALE[-]"
+	}
+	return fmt.Sprintf("[%s]%s[-]  [%s]%-14s[-]%s\n[%s]%s[-]  [green]%.0f°C[-] [gray]feels %.0f°C[-]\n[%s]%s[-]  [blue]rain %.1f mm[-] [gray]· %.0f%% humidity[-]\n[gray]wind %.0f km/h %s[-]",
+		visual.Color, visual.Glyph[0], visual.Color, strings.ToUpper(visual.Label), stale,
+		visual.Color, visual.Glyph[1], forecast.Current.Temperature, forecast.Current.ApparentTemperature,
+		visual.Color, visual.Glyph[2], forecast.Current.Precipitation, forecast.Current.Humidity,
+		forecast.Current.WindSpeed, weatherprobe.WindDirection(forecast.Current.WindDirection))
+}
+
+func (p *Panel) renderPeriods(hourly []weatherprobe.Hourly) {
+	p.periods.Clear()
+	periods := weatherprobe.SummarizePeriods(hourly)
+	if len(periods) == 0 {
+		p.periods.AddItem(textView().SetText("[gray]No upcoming hourly forecast is available.[-]"), 0, 1, false)
+		return
+	}
+
+	for _, period := range periods {
+		visual := weatherprobe.ConditionVisual(period.Condition)
+		card := textView()
+		theme.Box(card.Box, strings.ToUpper(period.Label))
+		card.SetText(fmt.Sprintf("[%s]%s[-] %s\n[green]%.0f–%.0f°C[-]\n[blue]rain %.0f%%[-]\n[gray]wind %.0f km/h[-]",
+			visual.Color, visual.Glyph[1], visual.Label, period.Low, period.High, period.PrecipitationProbability, period.WindSpeed))
+		p.periods.AddItem(card, 0, 1, false)
 	}
 }
 
-func titleCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).SetTextColor(theme.ColorPrimary)
+func (p *Panel) dailyText(daily []weatherprobe.Daily) string {
+	var builder strings.Builder
+	builder.WriteString("[turquoise]7-DAY OUTLOOK[-]\n")
+	for _, forecast := range daily {
+		visual := weatherprobe.ConditionVisual(forecast.WeatherCode)
+		builder.WriteString(fmt.Sprintf("[green]%-6s[-] [%s]%-13s[-] [green]%2.0f/%2.0f°C[-]  [blue]%3.0f%%[-]  [gray]%2.0f km/h[-]\n",
+			forecast.Date.Format("Mon 02"), visual.Color, visual.Label, forecast.High, forecast.Low, forecast.PrecipitationProbability, forecast.WindSpeed))
+	}
+	return strings.TrimSuffix(builder.String(), "\n")
 }
 
-func headerCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).
-		SetTextColor(theme.ColorPrimary).
-		SetSelectable(false)
+func (p *Panel) selectedLocation() string {
+	if p.active < 0 || p.active >= len(p.forecasts) {
+		return ""
+	}
+	return p.forecasts[p.active].Location.Name
 }
 
-func accentCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).SetTextColor(theme.ColorAccent)
+func indexForLocation(forecasts []weatherprobe.Forecast, location string) int {
+	for index, forecast := range forecasts {
+		if forecast.Location.Name == location {
+			return index
+		}
+	}
+	return 0
 }
 
-func mutedCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).SetTextColor(theme.ColorMuted)
+func cardView(title string) *tview.TextView {
+	card := textView()
+	theme.Box(card.Box, title)
+	return card
 }
 
-func errorCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).SetTextColor(theme.ColorError)
+func textView() *tview.TextView {
+	return tview.NewTextView().SetDynamicColors(true).SetWrap(false)
 }

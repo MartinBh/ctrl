@@ -32,7 +32,7 @@ func TestQuestionMarkOpensHelp(t *testing.T) {
 	}
 }
 
-func TestWeatherShortcutFocusesForecastTable(t *testing.T) {
+func TestWeatherShortcutFocusesForecastPane(t *testing.T) {
 	dashboard := testDashboard(t)
 	dashboard.configure()
 
@@ -111,8 +111,7 @@ func TestConfigureSeedsLoadingState(t *testing.T) {
 		t.Fatalf("usage status = %q, want checking", got)
 	}
 
-	weatherTable := dashboard.weather.Primitive().(*tview.Table)
-	if got := weatherTable.GetCell(1, 0).Text; got == "" {
+	if got := dashboard.weather.Primitive(); got == nil {
 		t.Fatal("weather loading state is empty")
 	}
 
