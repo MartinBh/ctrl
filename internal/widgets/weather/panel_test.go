@@ -2,64 +2,124 @@ package weather
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 
 	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
 )
 
-func TestPanelShowsLoadingState(t *testing.T) {
+func TestPanelShowsLoadingCards(t *testing.T) {
 	panel := NewPanel()
-	panel.SetLoading()
 
-	if got, want := panel.table.GetCell(0, 0).Text, "Weather: Open-Meteo"; got != want {
-		t.Fatalf("attribution = %q, want %q", got, want)
+	if got, want := panel.cards.GetItemCount(), len(weatherprobe.Locations); got != want {
+		t.Fatalf("loading card count = %d, want %d", got, want)
 	}
-	if got := panel.table.GetCell(1, 0).Text; got == "" {
-		t.Fatal("loading text is empty")
+	if got := panel.status.GetText(true); !strings.Contains(got, "Open-Meteo") {
+		t.Fatalf("loading status = %q, want attribution", got)
 	}
 }
 
-func TestPanelShowsForecastAndLocationError(t *testing.T) {
+func TestPanelShowsCardsAndSelectedForecast(t *testing.T) {
 	panel := NewPanel()
-	panel.SetForecasts([]weatherprobe.Forecast{
-		{
-			Location: weatherprobe.Location{Name: "Gangnam-gu"},
-			Current:  weatherprobe.Current{Temperature: 25, ApparentTemperature: 26, Humidity: 70, WeatherCode: 1, WindSpeed: 10, WindDirection: 90},
-			Hourly:   []weatherprobe.Hourly{{Time: seoulTime(t, "2026-07-10T11:00"), Temperature: 26, WeatherCode: 2, WindSpeed: 11}},
-			Daily:    []weatherprobe.Daily{{Date: seoulTime(t, "2026-07-10T00:00"), High: 30, Low: 21, WeatherCode: 3, WindSpeed: 12}},
-		},
-		{Location: weatherprobe.Location{Name: "Sangbong-dong"}, Err: errors.New("request timed out")},
-	})
+	panel.SetForecasts([]weatherprobe.Forecast{forecast(t, "Gangnam-gu", 1), forecast(t, "Sangbong-dong", 61)})
 
-	if got, want := panel.table.GetCell(2, 1).Text, "Partly cloudy"; got != want {
-		t.Fatalf("current condition = %q, want %q", got, want)
+	gangnamCard := panel.cards.GetItem(0).(*tview.TextView).GetText(true)
+	if !strings.Contains(gangnamCard, "PARTLY CLOUDY") || !strings.Contains(gangnamCard, "25°C") {
+		t.Fatalf("Gangnam card = %q, want condition and temperature", gangnamCard)
 	}
-	if got, want := panel.table.GetCell(4, 0).Text, "11:00"; got != want {
-		t.Fatalf("hourly time = %q, want %q", got, want)
+	if got := panel.detailTitle.GetText(true); !strings.Contains(got, "Gangnam-gu forecast") {
+		t.Fatalf("detail title = %q, want Gangnam forecast", got)
 	}
-	if got, want := panel.table.GetCell(6, 0).Text, "Fri 10"; got != want {
-		t.Fatalf("daily date = %q, want %q", got, want)
+	if got := panel.status.GetText(true); !strings.Contains(got, "current conditions") {
+		t.Fatalf("status = %q, want current conditions", got)
 	}
-	if got, want := panel.table.GetCell(9, 0).Text, "Unavailable"; got != want {
-		t.Fatalf("error state = %q, want %q", got, want)
+	if got := panel.daily.GetText(true); !strings.Contains(got, "7-DAY OUTLOOK") {
+		t.Fatalf("daily outlook = %q, want heading", got)
+	}
+}
+
+func TestPanelChangesActiveLocationFromKeyboard(t *testing.T) {
+	panel := NewPanel()
+	panel.SetForecasts([]weatherprobe.Forecast{forecast(t, "Gangnam-gu", 1), forecast(t, "Sangbong-dong", 61)})
+
+	if got := panel.handleKey(tcell.NewEventKey(tcell.KeyRune, '2', tcell.ModNone)); got != nil {
+		t.Fatalf("handleKey(2) = %v, want nil", got)
+	}
+	if got, want := panel.active, 1; got != want {
+		t.Fatalf("active location = %d, want %d", got, want)
+	}
+	if got := panel.detailTitle.GetText(true); !strings.Contains(got, "Sangbong-dong forecast") {
+		t.Fatalf("detail title = %q, want Sangbong forecast", got)
+	}
+}
+
+func TestPanelStacksCardsOnNarrowTerminals(t *testing.T) {
+	panel := NewPanel()
+	panel.SetForecasts([]weatherprobe.Forecast{forecast(t, "Gangnam-gu", 1), forecast(t, "Sangbong-dong", 61)})
+
+	screen := tcell.NewSimulationScreen("")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	defer screen.Fini()
+
+	screen.SetSize(70, 32)
+	panel.root.SetRect(0, 0, 70, 32)
+	panel.root.Draw(screen)
+	_, firstY, _, _ := panel.cards.GetItem(0).GetRect()
+	secondX, secondY, _, _ := panel.cards.GetItem(1).GetRect()
+	if !panel.narrow || secondX != 1 || secondY <= firstY {
+		t.Fatalf("narrow cards = narrow:%t x:%d y:%d, want stacked cards", panel.narrow, secondX, secondY)
+	}
+
+	screen.SetSize(100, 32)
+	panel.root.SetRect(0, 0, 100, 32)
+	panel.root.Draw(screen)
+	firstX, wideFirstY, _, _ := panel.cards.GetItem(0).GetRect()
+	wideSecondX, wideSecondY, _, _ := panel.cards.GetItem(1).GetRect()
+	if panel.narrow || wideSecondX <= firstX || wideSecondY != wideFirstY {
+		t.Fatalf("wide cards = narrow:%t first:(%d,%d) second:(%d,%d), want side-by-side cards", panel.narrow, firstX, wideFirstY, wideSecondX, wideSecondY)
 	}
 }
 
 func TestPanelRetainsLastForecastWhenRefreshFails(t *testing.T) {
 	panel := NewPanel()
-	success := weatherprobe.Forecast{
-		Location: weatherprobe.Location{Name: "Gangnam-gu"},
-		Current:  weatherprobe.Current{WeatherCode: 0},
-	}
+	success := forecast(t, "Gangnam-gu", 0)
 	panel.SetForecasts([]weatherprobe.Forecast{success})
 	panel.SetForecasts([]weatherprobe.Forecast{{Location: success.Location, Err: errors.New("request timed out")}})
 
-	if got, want := panel.table.GetCell(2, 0).Text, "Stale"; got != want {
-		t.Fatalf("stale state = %q, want %q", got, want)
+	card := panel.cards.GetItem(0).(*tview.TextView).GetText(true)
+	if !strings.Contains(card, "STALE") || !strings.Contains(card, "CLEAR") {
+		t.Fatalf("stale card = %q, want stale retained forecast", card)
 	}
-	if got, want := panel.table.GetCell(3, 1).Text, "Clear"; got != want {
-		t.Fatalf("retained condition = %q, want %q", got, want)
+	if got := panel.status.GetText(true); !strings.Contains(got, "last successful") {
+		t.Fatalf("status = %q, want stale status", got)
+	}
+}
+
+func TestPanelShowsUnavailableStatus(t *testing.T) {
+	panel := NewPanel()
+	panel.SetForecasts([]weatherprobe.Forecast{{Location: weatherprobe.Location{Name: "Gangnam-gu"}, Err: errors.New("request timed out")}})
+
+	if got := panel.status.GetText(true); !strings.Contains(got, "weather unavailable") {
+		t.Fatalf("status = %q, want unavailable status", got)
+	}
+}
+
+func forecast(t *testing.T, name string, weatherCode int) weatherprobe.Forecast {
+	t.Helper()
+	return weatherprobe.Forecast{
+		Location: weatherprobe.Location{Name: name},
+		Current:  weatherprobe.Current{Temperature: 25, ApparentTemperature: 27, Humidity: 70, Precipitation: 0.1, WeatherCode: weatherCode, WindSpeed: 10, WindDirection: 90},
+		Hourly: []weatherprobe.Hourly{
+			{Time: seoulTime(t, "2026-07-10T10:00"), Temperature: 25, WeatherCode: weatherCode, PrecipitationProbability: 60, WindSpeed: 10},
+			{Time: seoulTime(t, "2026-07-10T13:00"), Temperature: 27, WeatherCode: weatherCode, PrecipitationProbability: 80, WindSpeed: 11},
+		},
+		Daily: []weatherprobe.Daily{{Date: seoulTime(t, "2026-07-10T00:00"), High: 28, Low: 23, WeatherCode: weatherCode, PrecipitationProbability: 80, WindSpeed: 12}},
 	}
 }
 

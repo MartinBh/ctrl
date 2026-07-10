@@ -55,6 +55,21 @@ type Daily struct {
 	WindSpeed                float64
 }
 
+type Visual struct {
+	Label string
+	Color string
+	Glyph []string
+}
+
+type Period struct {
+	Label                    string
+	Condition                int
+	Low                      float64
+	High                     float64
+	PrecipitationProbability float64
+	WindSpeed                float64
+}
+
 type Forecast struct {
 	Location Location
 	Current  Current
@@ -277,6 +292,86 @@ func Condition(code int) string {
 		return "Thunderstorm"
 	default:
 		return "Unknown"
+	}
+}
+
+func ConditionVisual(code int) Visual {
+	visual := Visual{Label: Condition(code), Color: "gray", Glyph: []string{"     ", "  .-. ", "     "}}
+
+	switch code {
+	case 0:
+		visual.Color = "yellow"
+		visual.Glyph = []string{" \\   / ", "  .-.  ", " /   \\ "}
+	case 1, 2:
+		visual.Color = "yellow"
+		visual.Glyph = []string{" \\   / ", " .--.  ", "(____) "}
+	case 3:
+		visual.Glyph = []string{"       ", " .--.  ", "(____) "}
+	case 45, 48:
+		visual.Glyph = []string{"       ", " .--.  ", " ~ ~ ~ "}
+	case 51, 53, 55, 56, 57:
+		visual.Color = "blue"
+		visual.Glyph = []string{" .--.  ", "(____) ", " . . . "}
+	case 61, 63, 65, 66, 67, 80, 81, 82:
+		visual.Color = "blue"
+		visual.Glyph = []string{" .--.  ", "(____) ", " , , , "}
+	case 71, 73, 75, 77, 85, 86:
+		visual.Color = "white"
+		visual.Glyph = []string{" .--.  ", "(____) ", " * * * "}
+	case 95, 96, 99:
+		visual.Color = "red"
+		visual.Glyph = []string{" .--.  ", "(____) ", " ! ! ! "}
+	}
+
+	return visual
+}
+
+func SummarizePeriods(hourly []Hourly) []Period {
+	periods := make(map[string]Period)
+	for _, point := range hourly {
+		label := periodLabel(point.Time.Hour())
+		period, exists := periods[label]
+		if !exists {
+			periods[label] = Period{
+				Label:                    label,
+				Condition:                point.WeatherCode,
+				Low:                      point.Temperature,
+				High:                     point.Temperature,
+				PrecipitationProbability: point.PrecipitationProbability,
+				WindSpeed:                point.WindSpeed,
+			}
+			continue
+		}
+
+		period.Low = min(period.Low, point.Temperature)
+		period.High = max(period.High, point.Temperature)
+		period.WindSpeed = max(period.WindSpeed, point.WindSpeed)
+		if point.PrecipitationProbability >= period.PrecipitationProbability {
+			period.PrecipitationProbability = point.PrecipitationProbability
+			period.Condition = point.WeatherCode
+		}
+		periods[label] = period
+	}
+
+	ordered := make([]Period, 0, len(periods))
+	for _, label := range []string{"Morning", "Afternoon", "Evening", "Night"} {
+		if period, ok := periods[label]; ok {
+			ordered = append(ordered, period)
+		}
+	}
+	return ordered
+}
+
+func periodLabel(hour int) string {
+	switch {
+	case hour >= 5 && hour < 12:
+		return "Morning"
+	case hour >= 12 && hour < 17:
+		return "Afternoon"
+	case hour >= 17 && hour < 21:
+		return "Evening"
+	default:
+		return "Night"
 	}
 }
 

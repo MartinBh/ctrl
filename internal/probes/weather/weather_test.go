@@ -130,6 +130,51 @@ func TestConditionAndWindDirection(t *testing.T) {
 	}
 }
 
+func TestConditionVisualUsesTerminalSafeGlyphs(t *testing.T) {
+	tests := []struct {
+		code  int
+		label string
+		color string
+	}{
+		{code: 0, label: "Clear", color: "yellow"},
+		{code: 3, label: "Overcast", color: "gray"},
+		{code: 61, label: "Rain", color: "blue"},
+		{code: 71, label: "Snow", color: "white"},
+		{code: 95, label: "Thunderstorm", color: "red"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.label, func(t *testing.T) {
+			visual := ConditionVisual(tt.code)
+			if visual.Label != tt.label || visual.Color != tt.color {
+				t.Fatalf("ConditionVisual(%d) = %#v, want label %q and color %q", tt.code, visual, tt.label, tt.color)
+			}
+			if len(visual.Glyph) != 3 {
+				t.Fatalf("glyph line count = %d, want 3", len(visual.Glyph))
+			}
+		})
+	}
+}
+
+func TestSummarizePeriods(t *testing.T) {
+	periods := SummarizePeriods([]Hourly{
+		{Time: mustTime(t, "2026-07-10T10:00"), Temperature: 24, PrecipitationProbability: 20, WeatherCode: 2, WindSpeed: 4},
+		{Time: mustTime(t, "2026-07-10T11:00"), Temperature: 26, PrecipitationProbability: 80, WeatherCode: 61, WindSpeed: 7},
+		{Time: mustTime(t, "2026-07-10T13:00"), Temperature: 28, PrecipitationProbability: 10, WeatherCode: 1, WindSpeed: 8},
+		{Time: mustTime(t, "2026-07-10T16:00"), Temperature: 27, PrecipitationProbability: 40, WeatherCode: 3, WindSpeed: 5},
+	})
+
+	if got, want := len(periods), 2; got != want {
+		t.Fatalf("period count = %d, want %d", got, want)
+	}
+	if got, want := periods[0], (Period{Label: "Morning", Condition: 61, Low: 24, High: 26, PrecipitationProbability: 80, WindSpeed: 7}); got != want {
+		t.Fatalf("morning period = %#v, want %#v", got, want)
+	}
+	if got, want := periods[1], (Period{Label: "Afternoon", Condition: 3, Low: 27, High: 28, PrecipitationProbability: 40, WindSpeed: 8}); got != want {
+		t.Fatalf("afternoon period = %#v, want %#v", got, want)
+	}
+}
+
 func mustTime(t *testing.T, value string) time.Time {
 	t.Helper()
 	parsed, err := parseTime(value)
