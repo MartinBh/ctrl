@@ -77,6 +77,36 @@ func TestForecastsKeepsLocationError(t *testing.T) {
 	}
 }
 
+func TestForecastsKeepsMalformedResponseError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"current":`))
+	}))
+	defer server.Close()
+
+	client := NewClient()
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+
+	forecasts := client.Forecasts(context.Background())
+	if forecasts[0].Err == nil || !strings.Contains(forecasts[0].Err.Error(), "decode weather response") {
+		t.Fatalf("Forecasts() error = %v, want decode error", forecasts[0].Err)
+	}
+}
+
+func TestHourlyConditionsRejectsMismatchedFields(t *testing.T) {
+	response := apiResponse{}
+	response.Hourly.Time = []string{"2026-07-10T11:00"}
+	response.Hourly.Temperature = []float64{26}
+	response.Hourly.ApparentTemperature = []float64{27}
+	response.Hourly.PrecipitationProbability = []float64{20}
+	response.Hourly.WeatherCode = []int{1}
+
+	_, err := response.hourlyConditions(mustTime(t, "2026-07-10T10:00"))
+	if err == nil || !strings.Contains(err.Error(), "invalid hourly weather response") {
+		t.Fatalf("hourlyConditions() error = %v, want mismatched-field error", err)
+	}
+}
+
 func TestRequestURLContainsLocation(t *testing.T) {
 	client := NewClient()
 	requestURL, err := url.Parse(client.requestURL(Locations[1]))
@@ -94,6 +124,9 @@ func TestConditionAndWindDirection(t *testing.T) {
 	}
 	if got, want := WindDirection(360), "N"; got != want {
 		t.Fatalf("WindDirection(360) = %q, want %q", got, want)
+	}
+	if got, want := WindDirection(-90), "W"; got != want {
+		t.Fatalf("WindDirection(-90) = %q, want %q", got, want)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -280,7 +281,15 @@ func Condition(code int) string {
 }
 
 func WindDirection(degrees float64) string {
+	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
+		return "Unknown"
+	}
+
 	directions := []string{"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
+	degrees = math.Mod(degrees, 360)
+	if degrees < 0 {
+		degrees += 360
+	}
 	index := int((degrees+22.5)/45) % len(directions)
 	return directions[index]
 }

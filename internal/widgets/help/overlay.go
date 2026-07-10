@@ -24,7 +24,7 @@ const tutorialText = `[::b]Welcome to ctrl[::-]
   space complete/reopen | d delete
 
 [green]Dashboard[::-]
-  r refresh | ? help | q/Ctrl+C quit
+  w focus weather | r refresh | ? help | q/Ctrl+C quit
 
 [gray]Todos save locally as you work.[::-]
 

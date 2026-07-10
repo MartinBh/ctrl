@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -200,6 +201,9 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		case '?':
 			d.showHelp()
 			return nil
+		case 'w':
+			d.app.SetFocus(d.weather.Primitive())
+			return nil
 		}
 	}
 
@@ -389,10 +393,32 @@ func (d *Dashboard) dismissHelp() {
 }
 
 func (d *Dashboard) refreshAsync(ctx context.Context, resetFooter bool) {
-	statuses := probes.CheckAll(ctx, d.probes, 5*time.Second)
-	usageRows := d.checkUsage(ctx)
-	batteryStatus := d.checkBattery(ctx)
-	weatherForecasts := d.checkWeather(ctx)
+	var (
+		statuses         []probes.Status
+		usageRows        []usageprobe.ResourceUsage
+		batteryStatus    batteryprobe.Status
+		weatherForecasts []weatherprobe.Forecast
+		waitGroup        sync.WaitGroup
+	)
+
+	waitGroup.Add(4)
+	go func() {
+		defer waitGroup.Done()
+		statuses = probes.CheckAll(ctx, d.probes, 5*time.Second)
+	}()
+	go func() {
+		defer waitGroup.Done()
+		usageRows = d.checkUsage(ctx)
+	}()
+	go func() {
+		defer waitGroup.Done()
+		batteryStatus = d.checkBattery(ctx)
+	}()
+	go func() {
+		defer waitGroup.Done()
+		weatherForecasts = d.checkWeather(ctx)
+	}()
+	waitGroup.Wait()
 
 	d.app.QueueUpdateDraw(func() {
 		d.refreshTodos()
@@ -483,7 +509,7 @@ func (d *Dashboard) setFooter(text string) {
 }
 
 func (d *Dashboard) defaultFooter() string {
-	return "a add | e edit | space complete | d delete | r refresh | ? help | q quit | Weather: Open-Meteo | data " + d.options.TodoPath
+	return "a add | e edit | space complete | d delete | w weather | r refresh | ? help | q quit | Weather: Open-Meteo | data " + d.options.TodoPath
 }
 
 func centeredPrimitive(primitive tview.Primitive, width int, height int) tview.Primitive {

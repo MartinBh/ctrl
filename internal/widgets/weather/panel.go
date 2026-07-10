@@ -3,7 +3,6 @@ package weather
 import (
 	"fmt"
 
-	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	weatherprobe "github.com/martinbhatta/ctrl/internal/probes/weather"
@@ -18,7 +17,7 @@ type Panel struct {
 func NewPanel() *Panel {
 	table := tview.NewTable().
 		SetBorders(false).
-		SetSelectable(false, false)
+		SetSelectable(true, false)
 	theme.Box(table.Box, "WEATHER")
 
 	return &Panel{table: table, lastSuccessful: make(map[string]weatherprobe.Forecast)}
@@ -71,7 +70,7 @@ func (p *Panel) SetForecasts(forecasts []weatherprobe.Forecast) {
 		p.table.SetCell(row, 1, accentCell(weatherprobe.Condition(forecast.Current.WeatherCode)))
 		p.table.SetCell(row, 2, mutedCell(fmt.Sprintf("%.0f°C feels %.0f°C", forecast.Current.Temperature, forecast.Current.ApparentTemperature)))
 		p.table.SetCell(row, 3, mutedCell(fmt.Sprintf("%d%% humidity", int(forecast.Current.Humidity))))
-		p.table.SetCell(row, 4, mutedCell(fmt.Sprintf("%.0f%% precip", forecast.Current.Precipitation)))
+		p.table.SetCell(row, 4, mutedCell(fmt.Sprintf("%.1f mm precip", forecast.Current.Precipitation)))
 		p.table.SetCell(row, 5, mutedCell(fmt.Sprintf("%.0f km/h %s", forecast.Current.WindSpeed, weatherprobe.WindDirection(forecast.Current.WindDirection))))
 		row++
 
@@ -127,5 +126,5 @@ func mutedCell(text string) *tview.TableCell {
 }
 
 func errorCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).SetTextColor(tcell.ColorRed)
+	return tview.NewTableCell(text).SetTextColor(theme.ColorError)
 }
