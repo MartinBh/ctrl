@@ -44,6 +44,19 @@ func TestWeatherShortcutFocusesForecastPane(t *testing.T) {
 	}
 }
 
+func TestTabReturnsFocusToTodoList(t *testing.T) {
+	dashboard := testDashboard(t)
+	dashboard.configure()
+	dashboard.app.SetFocus(dashboard.weather.Primitive())
+
+	if got := dashboard.handleKey(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)); got != nil {
+		t.Fatalf("handleKey(Tab) = %v, want nil", got)
+	}
+	if got, want := dashboard.app.GetFocus(), dashboard.todos.Primitive(); got != want {
+		t.Fatal("Tab did not restore focus to the todo list")
+	}
+}
+
 func TestHelpConsumesDashboardShortcuts(t *testing.T) {
 	dashboard := testDashboard(t)
 	dashboard.configure()
