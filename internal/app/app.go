@@ -42,6 +42,7 @@ type Dashboard struct {
 
 	app                *tview.Application
 	pages              *tview.Pages
+	layout             *Layout
 	todos              *todowidget.Panel
 	env                *envwidget.Panel
 	usage              *usagewidget.Panel
@@ -107,37 +108,26 @@ func (d *Dashboard) Run(ctx context.Context) error {
 }
 
 func (d *Dashboard) configure() {
-	root := tview.NewFlex().SetDirection(tview.FlexRow)
-
-	header := tview.NewTextView().
-		SetDynamicColors(true).
-		SetTextAlign(tview.AlignCenter).
-		SetText(fmt.Sprintf("[::b]%s[::-]  [gray]personal terminal command center  version %s", theme.AppTitle, d.options.Version))
-
-	body := tview.NewFlex().SetDirection(tview.FlexColumn)
-	sidebar := tview.NewFlex().SetDirection(tview.FlexRow)
-	sidebar.AddItem(d.env.Primitive(), 0, 2, false)
-	sidebar.AddItem(d.usage.Primitive(), 0, 1, false)
-	sidebar.AddItem(d.battery.Primitive(), 4, 0, false)
-	sidebar.AddItem(d.weather.Primitive(), 0, 8, false)
-
-	body.AddItem(d.todos.Primitive(), 0, 1, true)
-	body.AddItem(sidebar, 0, 1, false)
-
 	d.footer.SetTextColor(theme.ColorMuted)
 	d.footer.SetTextAlign(tview.AlignCenter)
 	d.setFooter(d.defaultFooter())
 
-	root.AddItem(header, 1, 0, false)
-	root.AddItem(body, 0, 1, true)
-	root.AddItem(d.footer, 1, 0, false)
-
-	d.pages = tview.NewPages()
-	d.pages.AddPage(dashboardPageName, root, true, true)
+	d.layout = newLayout(
+		d.options.Version,
+		d.todos.Primitive(),
+		d.env.Primitive(),
+		d.usage.Primitive(),
+		d.battery.Primitive(),
+		d.weather.Primitive(),
+		d.footer,
+	)
+	d.pages = d.layout.Pages
 
 	d.app.SetRoot(d.pages, true)
 	d.app.EnableMouse(true)
 	d.app.SetInputCapture(d.handleKey)
+	d.app.SetBeforeDrawFunc(d.layout.BeforeDraw)
+	d.app.SetFocus(d.todos.Primitive())
 	d.showLoadingState()
 }
 
@@ -176,6 +166,10 @@ func (d *Dashboard) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	switch event.Key() {
 	case tcell.KeyCtrlC:
 		d.app.Stop()
+		return nil
+	case tcell.KeyTab:
+		d.app.SetFocus(d.todos.Primitive())
+		d.setFooter(d.defaultFooter())
 		return nil
 	case tcell.KeyRune:
 		switch event.Rune() {
